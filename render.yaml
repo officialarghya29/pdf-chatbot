@@ -1,0 +1,28 @@
+# Render blueprint — deploys the backend container.
+# Deploy via Render dashboard → New → Blueprint, or `render blueprint launch`.
+#
+# NOTE: the free plan has no persistent disk and sleeps after inactivity.
+# Sessions survive restarts in memory but are lost on redeploys; upgrade to
+# `starter` and uncomment the `disk:` block for durable storage.
+services:
+  - type: web
+    name: neochat-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false          # set in the Render dashboard, never in git
+      - key: OPENAI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: CHAT_MODEL
+        value: gpt-4o-mini
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: CORS_ORIGINS
+        value: https://pdf-chatbot-liard.vercel.app,https://pdf-chatbot.vercel.app
+    # disk:                  # ← uncomment together with plan: starter
+    #   name: neochat-storage
+    #   mountPath: /app/storage
+    #   sizeGB: 1
