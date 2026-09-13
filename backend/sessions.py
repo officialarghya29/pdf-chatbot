@@ -22,7 +22,7 @@ import llm
 from config import settings
 from ingest import Chunk
 
-log = logging.getLogger("neochat.sessions")
+log = logging.getLogger("unfold.sessions")
 
 MAX_SESSIONS = 30
 
