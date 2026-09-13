@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Env & secrets
+.env
+.env.local
+*.env
+!.env.example
+
+# Uploads & vector stores
+backend/uploads/
+backend/storage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
