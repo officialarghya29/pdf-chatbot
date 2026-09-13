@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type ChatMessage, type SessionSummary, type Source } from './lib/api'
+import { api, type Health, type ChatMessage, type SessionSummary, type Source } from './lib/api'
 import { uid } from './lib/utils'
 import Sidebar from './components/Sidebar'
 import EmptyState from './components/EmptyState'
@@ -7,6 +7,7 @@ import MessageBubble from './components/MessageBubble'
 import SourcePanel from './components/SourcePanel'
 import Composer from './components/Composer'
 import StatusBar from './components/StatusBar'
+import ApiWarning from './components/ApiWarning'
 
 type Connection = 'online' | 'offline'
 
@@ -15,6 +16,7 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sources, setSources] = useState<Source[]>([])
+  const [health, setHealth] = useState<Health | null>(null)
   const [connection, setConnection] = useState<Connection>('online')
 
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -38,11 +40,13 @@ export default function App() {
   useEffect(() => {
     ;(async () => {
       try {
-        await api.health()
+        const h = await api.health()
         setConnection('online')
+        setHealth(h)
         await refreshSessions()
       } catch {
         setConnection('offline')
+        setHealth(null)
       }
     })()
     return () => abortRef.current?.()
@@ -93,6 +97,7 @@ export default function App() {
       setActiveId(summary.session_id)
       setMessages([])
       setSources([])
+      setHealth((prev) => prev ? { ...prev, sessions: (prev.sessions ?? 0) + 1 } : prev)
     },
     [],
   )
@@ -181,9 +186,11 @@ export default function App() {
         <div className="pointer-events-none absolute -top-40 left-1/2 h-96 w-[42rem] -translate-x-1/2 rounded-full bg-cyan-500/10 blur-[120px]" />
         <div className="pointer-events-none absolute bottom-0 right-0 h-80 w-96 rounded-full bg-violet-500/10 blur-[120px]" />
 
+        <ApiWarning configured={health?.llm_configured ?? false} />
         <StatusBar
           connection={connection}
           session={activeSession}
+          health={health}
           onRetry={refreshSessions}
         />
 

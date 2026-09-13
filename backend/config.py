@@ -36,8 +36,8 @@ class Settings(BaseSettings):
     max_upload_mb: int = 25
 
     # --- Server -----------------------------------------------------------
-    app_name: str = "NeoChat PDF AI"
-    app_version: str = "2.0.0"
+    app_name: str = "Unfold"
+    app_version: str = "3.0.0"
     cors_origins: str = "*"
     log_level: str = "INFO"
 

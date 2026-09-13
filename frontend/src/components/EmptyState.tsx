@@ -40,14 +40,15 @@ export default function EmptyState({ onPick }: Props) {
         </div>
 
         <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-          Chat with any{' '}
+          Unfold the{' '}
           <span className="bg-gradient-to-r from-cyan-400 to-violet-400 bg-clip-text text-transparent">
-            PDF
+            knowledge
           </span>
+          <br />hidden in your documents
         </h1>
         <p className="mt-3 max-w-md text-[15px] leading-relaxed text-slate-400">
-          Upload a document and ask questions. NeoChat reads it, cites its pages
-          and answers in real time.
+          Upload a PDF and ask anything. Unfold reads it, cites its pages,
+          and answers in real time with cited sources.
         </p>
       </motion.div>
 

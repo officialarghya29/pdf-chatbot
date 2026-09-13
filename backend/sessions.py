@@ -26,7 +26,7 @@ log = logging.getLogger("neochat.sessions")
 
 MAX_SESSIONS = 30
 
-_PROMPT_HEADER = "You are NeoChat, an AI assistant that answers questions about a specific PDF document."
+_PROMPT_HEADER = "You are Unfold, an expert AI assistant that answers questions about a specific PDF document."
 
 
 class Session:

@@ -25,7 +25,7 @@ export default function Sidebar({ sessions, activeId, onNew, onOpen, onDelete }:
           </div>
         </div>
         <div>
-          <div className="text-[15px] font-bold tracking-tight text-white">NeoChat</div>
+          <div className="text-[15px] font-bold tracking-tight text-white">Unfold</div>
           <div className="text-[11px] font-medium uppercase tracking-widest text-cyan-400/80">
             PDF · AI
           </div>

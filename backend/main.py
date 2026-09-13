@@ -27,7 +27,7 @@ logging.basicConfig(
     level=settings.log_level,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-log = logging.getLogger("neochat")
+log = logging.getLogger("unfold")
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 
