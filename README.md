@@ -65,10 +65,17 @@ cp .env.example.docker .env   # set OPENAI_API_KEY
 | **Vector Search** | FAISS `IndexFlatIP` with L2-normalized embeddings → cosine similarity, top-k configurable |
 | **Streaming Chat** | SSE token streaming: answers appear in real time as the model generates them |
 | **Inline Citations** | `[1]`, `[2]` markers in the answer map to exact pages via expandable source chips |
+| **Copy Button** | One-click copy on every assistant message with visual feedback |
+| **Jump to Bottom** | Floating button appears when you scroll up, auto-scrolls on new tokens |
+| **Clear History** | Eraser icon per session clears chat history without deleting the document |
+| **Mobile Sidebar** | Hamburger menu + slide-in sidebar on mobile with backdrop overlay |
 | **Multi-Document Sessions** | Upload multiple PDFs per session, cross-document Q&A |
 | **Persistence** | FAISS indices + chat history + metadata survive server restarts (disk-backed) |
 | **Concurrency-Safe** | Thread-safe session store, heavy work on worker threads (never blocks the event loop) |
+| **Gzip Compression** | Automatic response compression for all API endpoints |
+| **Request Logging** | Every request logged with method, path, status code, and latency |
 | **Error Boundary** | React `ErrorBoundary` catches render crashes; backend friendly-maps every OpenAI error |
+| **API Key Warning** | Dismissible banner when OPENAI_API_KEY is missing, with setup instructions |
 | **Docker Ready** | `docker compose up --build` → full stack on `:8080` |
 
 ---
@@ -143,6 +150,7 @@ User asks question     POST /api/ask (SSE stream)       Backend
 | `GET` | `/api/sessions/{id}` | Session summary (title, pages, chunks) |
 | `GET` | `/api/sessions/{id}/messages` | Chat history for a session |
 | `DELETE` | `/api/sessions/{id}` | Delete session + vector index + history |
+| `DELETE` | `/api/sessions/{id}/messages` | Clear chat history (keeps session) |
 | `POST` | `/api/ask` | Ask a question → **SSE stream** (`start` → `delta`s → `done`) |
 
 ### SSE event format
@@ -170,6 +178,25 @@ User asks question     POST /api/ask (SSE stream)       Backend
 | `MAX_HISTORY` | `10` | Conversation turns sent to the LLM |
 | `MAX_UPLOAD_MB` | `25` | Max PDF upload size |
 | `CORS_ORIGINS` | `*` | Comma-separated allowed origins |
+
+---
+
+## Troubleshooting
+
+| Error | Cause | Fix |
+|---|---|---|
+| `OPENAI_API_KEY is not configured` | No key in `backend/.env` | Create `backend/.env` with `OPENAI_API_KEY=sk-...` and restart |
+| `Invalid or missing OPENAI_API_KEY` | Wrong key or expired | Check your key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| `Rate limit / quota exceeded` | Too many requests or free tier limit | Wait or upgrade your OpenAI plan |
+| `Could not reach the LLM provider` | Network issue or wrong `OPENAI_BASE_URL` | Check internet connection and base URL |
+| `Only PDF files are supported` | Uploaded non-PDF file | Upload a `.pdf` file |
+| `No extractable text found` | Scanned/image-only PDF | Upload a text-based PDF (not a scan) |
+| `This PDF is password protected` | Encrypted PDF | Remove password protection before uploading |
+| `File too large` | PDF exceeds 25 MB | Compress or split the PDF |
+| `Session not found` | Session was deleted or server restarted | Upload the PDF again |
+| CORS errors in browser | Backend not running or wrong origin | Start backend on :8000, check `CORS_ORIGINS` in `.env` |
+| Frontend shows "Backend offline" | Backend not started | Run `cd backend && venv/bin/uvicorn main:app --reload --port 8000` |
+| Blank white page | React crash | Check browser console; ErrorBoundary should show recovery UI |
 
 ---
 
@@ -224,7 +251,7 @@ cd frontend && npm test                             # utils, SSE parser, compone
 cd frontend && npm run build                        # strict tsc + production bundle
 ```
 
-**69 total checks** — all pass offline with no API key.
+**68 total checks** — all pass offline with no API key.
 
 ---
 
@@ -270,10 +297,10 @@ unfold/
 │   │   ├── main.tsx                 Entry with ErrorBoundary
 │   │   ├── index.css                Tailwind theme + glassmorphism
 │   │   ├── components/
-│   │   │   ├── Sidebar.tsx          Session list + new chat
+│   │   │   ├── Sidebar.tsx          Session list + clear history + mobile hamburger
 │   │   │   ├── EmptyState.tsx       Animated hero + suggestion cards
-│   │   │   ├── MessageBubble.tsx    Markdown + citations + thinking dots
-│   │   │   ├── Composer.tsx         Upload + message input
+│   │   │   ├── MessageBubble.tsx    Markdown + citations + copy button + thinking dots
+│   │   │   ├── Composer.tsx         Upload + message input + drag-drop
 │   │   │   ├── SourcePanel.tsx      Expandable source chunks
 │   │   │   ├── StatusBar.tsx        Health + connection + model info
 │   │   │   ├── ApiWarning.tsx       Missing API key banner
@@ -295,5 +322,5 @@ unfold/
 
 <p align="center">
   Built with 🧠 by <a href="https://github.com/officialarghya29">officialarghya29</a><br/>
-  <sub>Unfold v3.0 — 69 tests, zero dependencies on LangChain</sub>
+  <sub>Unfold v3.1 — 68 tests, zero dependencies on LangChain</sub>
 </p>
