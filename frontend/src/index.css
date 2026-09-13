@@ -1,0 +1,148 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-void text-slate-200 font-sans antialiased;
+    overflow: hidden;
+  }
+  #root {
+    height: 100vh;
+    height: 100dvh;
+  }
+  ::selection {
+    @apply bg-neon/30 text-white;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-panel/70 backdrop-blur-xl border border-edge/80;
+  }
+  .glass-strong {
+    @apply bg-panel/90 backdrop-blur-2xl border border-edge;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-500
+      px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20
+      transition-all duration-200 hover:shadow-cyan-500/40 hover:brightness-110
+      active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-400
+      transition-colors hover:bg-white/5 hover:text-slate-200 active:scale-[0.98];
+  }
+  .input-shell {
+    @apply w-full rounded-2xl border border-edge bg-panel/80 backdrop-blur-xl
+      text-slate-100 placeholder:text-slate-600 outline-none
+      focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all;
+  }
+}
+
+/* ---------- scrollbars ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- markdown ---------- */
+.md {
+  @apply text-[15px] leading-relaxed;
+}
+.md p {
+  @apply mb-3 last:mb-0;
+}
+.md strong {
+  @apply text-white font-semibold;
+}
+.md em {
+  @apply text-slate-300;
+}
+.md ul {
+  @apply list-disc pl-5 my-2 space-y-1;
+}
+.md ol {
+  @apply list-decimal pl-5 my-2 space-y-1;
+}
+.md li::marker {
+  @apply text-cyan-400;
+}
+.md h1,
+.md h2,
+.md h3 {
+  @apply text-white font-bold mt-4 mb-2;
+}
+.md h1 {
+  @apply text-xl;
+}
+.md h2 {
+  @apply text-lg;
+}
+.md h3 {
+  @apply text-base;
+}
+.md code {
+  @apply font-mono text-[13px] bg-cyan-500/10 text-cyan-300 px-1.5 py-0.5 rounded-md;
+}
+.md pre {
+  @apply my-3 rounded-xl border border-edge bg-black/50 p-4 overflow-x-auto;
+}
+.md pre code {
+  @apply bg-transparent p-0 text-slate-200 text-[13px] leading-relaxed;
+}
+.md blockquote {
+  @apply border-l-2 border-cyan-500/50 pl-3 text-slate-400 italic my-2;
+}
+.md a {
+  @apply text-cyan-400 underline decoration-cyan-400/30 underline-offset-2 hover:decoration-cyan-400;
+}
+.md table {
+  @apply w-full my-3 text-sm border-collapse;
+}
+.md th {
+  @apply border border-edge bg-white/5 px-3 py-1.5 text-left font-semibold text-slate-200;
+}
+.md td {
+  @apply border border-edge px-3 py-1.5;
+}
+
+/* ---------- animations ---------- */
+@keyframes grid-drift {
+  from { background-position: 0 0; }
+  to { background-position: 60px 60px; }
+}
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  animation: grid-drift 30s linear infinite;
+}
+
+@keyframes caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.caret::after {
+  content: '▍';
+  @apply text-cyan-400 animate-[caret-blink_1s_infinite];
+  margin-left: 1px;
+}
