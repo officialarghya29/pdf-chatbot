@@ -1,34 +1,14 @@
-import { useEffect, useState } from 'react'
 import { FileText, Wifi, Cpu, RefreshCw } from 'lucide-react'
-import { api, type Health, type SessionSummary } from '../lib/api'
+import type { Health, SessionSummary } from '../lib/api'
 
 interface Props {
   connection: 'online' | 'offline'
   session: SessionSummary | null
+  health: Health | null
   onRetry: () => void
 }
 
-export default function StatusBar({ connection, session, onRetry }: Props) {
-  const [health, setHealth] = useState<Health | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    const poll = async () => {
-      try {
-        const h = await api.health()
-        if (alive) setHealth(h)
-      } catch {
-        if (alive) setHealth(null)
-      }
-    }
-    poll()
-    const t = setInterval(poll, 30000)
-    return () => {
-      alive = false
-      clearInterval(t)
-    }
-  }, [])
-
+export default function StatusBar({ connection, session, health, onRetry }: Props) {
   const offline = connection === 'offline' && !health
 
   return (

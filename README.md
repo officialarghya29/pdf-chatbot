@@ -1,132 +1,295 @@
-# NeoChat · AI PDF Chatbot
+<p align="center">
+  <img src="frontend/public/favicon.svg" width="96" alt="Unfold logo" />
+</p>
 
-A futuristic, production-grade chat-with-your-PDF app.
+<h1 align="center">
+  <strong>Unfold</strong><br/>
+  <sub>Unfold the knowledge hidden inside your documents.</sub>
+</h1>
 
-- **Frontend** — React 18 + TypeScript + Vite + Tailwind CSS, glassmorphism dark UI,
-  streaming answers, drag-&-drop uploads, source citations, session history.
-- **Backend** — FastAPI + OpenAI-compatible API, FAISS vector search,
-  page-aware chunking, SSE token streaming, disk-persisted sessions.
+<p align="center">
+  <strong>AI-powered PDF chat</strong> — upload any document, ask questions in natural language,
+  get answers with inline citations mapped to exact pages.
+  Built with FastAPI + FAISS + OpenAI + React 18 + Tailwind CSS.
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#api">API</a> ·
+  <a href="#deployment">Deployment</a> ·
+  <a href="#comparison">Why Unfold?</a>
+</p>
 
 ---
 
-## Quick start
-
-### 1. Backend
+## Quick Start
 
 ```bash
+# 1. Clone and enter
+git clone https://github.com/officialarghya29/pdf-chatbot.git
+cd pdf-chatbot
+
+# 2. Backend
 cd backend
 python3 -m venv venv
-venv/bin/pip install -r requirements.txt   # Windows: venv\Scripts\pip install -r requirements.txt
-
-cp .env.example .env                       # then edit .env and set OPENAI_API_KEY
+venv/bin/pip install -r requirements.txt
+cp .env.example .env          # ← paste your OPENAI_API_KEY here
 venv/bin/uvicorn main:app --reload --port 8000
-```
 
-API docs open at <http://localhost:8000/docs>.
-
-> Works with any OpenAI-compatible endpoint — set `OPENAI_BASE_URL` in `.env`.
-
-### 2. Frontend
-
-```bash
+# 3. Frontend (new terminal)
 cd frontend
 npm install
-npm run dev        # http://localhost:5173  (proxies /api → :8000)
+npm run dev                   # → http://localhost:5173
 ```
 
-### One-command dev (optional)
-
-```bash
-./dev.sh           # starts backend + frontend together
-```
-
----
-
-## Deployment
-
-**Option A — one container (simplest):**
-
+Or use the one-command shortcut:
 ```bash
 cp .env.example.docker .env   # set OPENAI_API_KEY
-docker compose up --build     # app on http://localhost:8080
+./dev.sh                      # starts both
 ```
-
-Sessions persist in the `neochat-data` Docker volume.
-
-**Option B — split cloud (free tiers):**
-
-1. **Backend on Render** — dashboard → New → Blueprint (uses `render.yaml`),
-   set `OPENAI_API_KEY` when prompted. `CORS_ORIGINS` is pre-wired for Vercel.
-2. **Frontend on Vercel** — import the repo; `vercel.json` builds the frontend
-   and rewrites `/api/*` to `https://neochat-api.onrender.com` (edit the host if
-   your Render service name differs). SSE streaming works through the rewrite.
-
-> Free Render instances sleep after inactivity; first request after a nap takes
-> ~30s. Upgrade or ping with a cron job to keep warm.
 
 ---
 
 ## Features
 
-| Area | What you get |
+| Capability | Detail |
 |---|---|
-| Ingestion | PDF text extraction, header/footer cleaning, metadata titles, page-aware chunking |
-| Retrieval | FAISS cosine similarity, normalized embeddings, top-k configurable |
-| Chat | SSE token streaming, conversation memory, markdown answers, inline citations `[n] → page` |
-| Sessions | Multiple documents, persistent history across restarts, delete, auto-eviction |
-| Safety | File-type/magic-byte/size validation, friendly LLM error mapping, CORS config |
-| UX | Glass UI, animated hero, drag-drop with progress %, stop-generation, offline detection |
+| **PDF Ingestion** | Page-aware text extraction via `pypdf`, header/footer cleanup, hyphenation repair, encrypted-PDF detection |
+| **Smart Chunking** | Sliding-window word chunking (configurable 1000/200), per-page metadata preserved |
+| **Vector Search** | FAISS `IndexFlatIP` with L2-normalized embeddings → cosine similarity, top-k configurable |
+| **Streaming Chat** | SSE token streaming: answers appear in real time as the model generates them |
+| **Inline Citations** | `[1]`, `[2]` markers in the answer map to exact pages via expandable source chips |
+| **Multi-Document Sessions** | Upload multiple PDFs per session, cross-document Q&A |
+| **Persistence** | FAISS indices + chat history + metadata survive server restarts (disk-backed) |
+| **Concurrency-Safe** | Thread-safe session store, heavy work on worker threads (never blocks the event loop) |
+| **Error Boundary** | React `ErrorBoundary` catches render crashes; backend friendly-maps every OpenAI error |
+| **Docker Ready** | `docker compose up --build` → full stack on `:8080` |
 
-## Configuration (backend/.env)
+---
 
-| Var | Default | Purpose |
-|---|---|---|
-| `OPENAI_API_KEY` | — | Required. Your secret key |
-| `OPENAI_BASE_URL` | OpenAI | Any compatible endpoint |
-| `CHAT_MODEL` | `gpt-4o-mini` | Chat model |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
-| `CHUNK_SIZE` / `CHUNK_OVERLAP` | 1000 / 200 | RAG chunking |
-| `TOP_K` | 5 | Chunks retrieved per question |
-| `MAX_UPLOAD_MB` | 25 | Upload limit |
-| `CORS_ORIGINS` | localhost origins | Comma-separated allow-list |
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Frontend (Vite + React 18 + TypeScript + Tailwind)                │
+│                                                                     │
+│  ┌────────────┐  ┌──────────┐  ┌────────────┐  ┌──────────────┐   │
+│  │ Sidebar     │  │ Chat     │  │ Source     │  │ Composer     │   │
+│  │ (sessions)  │  │ (stream) │  │ Panel      │  │ (upload+ask) │   │
+│  └──────┬─────┘  └────┬─────┘  └────────────┘  └──────┬───────┘   │
+│         │              │                                │            │
+│         └──────────────┼────────────────────────────────┘            │
+│                        │ SSE events + XHR upload                    │
+└────────────────────────┼────────────────────────────────────────────┘
+                         │  /api/*
+┌────────────────────────┼────────────────────────────────────────────┐
+│  Backend (FastAPI + uvicorn)                                        │
+│                        │                                            │
+│  ┌─────────────────────┴──────────────────────────────────────┐    │
+│  │ Router: /api/upload  /api/ask  /api/sessions  /api/health  │    │
+│  └────────┬──────────────────┬───────────────────┬────────────┘    │
+│           │                  │                   │                   │
+│  ┌────────▼─────────┐ ┌─────▼──────────┐ ┌──────▼────────────┐   │
+│  │ ingest.py         │ │ sessions.py    │ │ llm.py            │   │
+│  │  pypdf → chunks   │ │  FAISS index   │ │  OpenAI client    │   │
+│  │  header cleanup   │ │  persistence   │ │  streaming chat   │   │
+│  └──────────────────┘ │  prompt builder │ │  embeddings       │   │
+│                        └────────────────┘ └───────────────────┘   │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### Data flow — Upload to first answer
+
+```
+User drops PDF        Frontend POST /api/upload        Backend
+     │                      │                             │
+     │  ──────────────────► │  multipart/form-data        │
+     │                      │  ─────────────────────────► │
+     │                      │                             │  extract_pdf()  → text per page
+     │                      │                             │  chunk_text()   → sliding windows
+     │                      │                             │  embed_texts()  → FAISS vectors
+     │                      │                             │  index.add()    → cosine search
+     │                      │  ◄───────────────────────── │  200 + session summary
+     │  ◄────────────────── │                             │
+     │                      │                             │
+User asks question     POST /api/ask (SSE stream)       Backend
+     │                      │                             │
+     │  ──────────────────► │  {session_id, query}        │
+     │                      │  ─────────────────────────► │
+     │                      │                             │  search(query)   → top-k chunks
+     │                      │                             │  build_messages() → system + history
+     │                      │                             │  llm.stream()    → token deltas
+     │                      │  ◄─── event: start ──────── │
+     │                      │  ◄─── event: delta ──────── │
+     │  ◄── "Answer... "   │  ◄─── event: delta ──────── │
+     │  ◄── [citation]     │  ◄─── event: done ────────── │
+```
+
+---
 
 ## API
 
 | Method | Route | Description |
-|---|---|---|
-| GET | `/api/health` | Health + config status |
-| POST | `/api/upload` | Upload PDF → creates session (multipart `file`) |
-| GET | `/api/sessions` | List sessions |
-| GET | `/api/sessions/{id}` | Session summary |
-| GET | `/api/sessions/{id}/messages` | Chat history |
-| DELETE | `/api/sessions/{id}` | Delete session + vectors |
-| POST | `/api/ask` | Ask a question → **SSE stream** (`start`→`delta`…→`done`) |
+|--------|-------|-------------|
+| `GET` | `/api/health` | Health check + LLM config status |
+| `POST` | `/api/upload` | Upload PDF → creates session (multipart) |
+| `GET` | `/api/sessions` | List all sessions (newest first) |
+| `GET` | `/api/sessions/{id}` | Session summary (title, pages, chunks) |
+| `GET` | `/api/sessions/{id}/messages` | Chat history for a session |
+| `DELETE` | `/api/sessions/{id}` | Delete session + vector index + history |
+| `POST` | `/api/ask` | Ask a question → **SSE stream** (`start` → `delta`s → `done`) |
+
+### SSE event format
+
+```json
+{"type": "start", "sources": [{"page": 3, "snippet": "..."}]}
+{"type": "delta",  "text": "The answer"}
+{"type": "delta",  "text": " is 42"}
+{"type": "done",   "answer": "The answer is 42", "citations": [{"n": 1, "page": 3}]}
+```
+
+---
+
+## Configuration
+
+| Env var | Default | Description |
+|---------|---------|-------------|
+| `OPENAI_API_KEY` | — | **Required.** Your secret key ([get one](https://platform.openai.com/api-keys)) |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Compatible endpoint (Azure, OpenRouter, Groq) |
+| `CHAT_MODEL` | `gpt-4o-mini` | Chat completion model |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
+| `CHUNK_SIZE` | `1000` | Approximate characters per chunk |
+| `CHUNK_OVERLAP` | `200` | Overlap between adjacent chunks |
+| `TOP_K` | `5` | Chunks retrieved per query |
+| `MAX_HISTORY` | `10` | Conversation turns sent to the LLM |
+| `MAX_UPLOAD_MB` | `25` | Max PDF upload size |
+| `CORS_ORIGINS` | `*` | Comma-separated allowed origins |
+
+---
+
+## Why Unfold?
+
+### Comparison with alternatives
+
+| Feature | Unfold | Basic chatbots | LangChain demos | Enterprise RAG |
+|---------|--------|----------------|-----------------|----------------|
+| **Setup time** | `pip install` + env | Minutes | Hours | Weeks |
+| **Dependencies** | 7 packages (no langchain) | Varies | 20+ | Dozens |
+| **Streaming answers** | ✅ SSE real-time | ❌ Wait for full | ⚠️ Generator | ✅ |
+| **Citations → pages** | ✅ Inline `[1]` → page | ❌ None | ⚠️ Manual | ⚠️ Extra work |
+| **Multi-document** | ✅ Per-session | ❌ Single | ⚠️ Manual | ✅ |
+| **Persistence** | ✅ Disk-backed | ❌ Ephemeral | ❌ Ephemeral | ✅ |
+| **Error handling** | ✅ Friendly messages | ❌ Raw traceback | ⚠️ Generic | ✅ |
+| **Frontend quality** | ✅ Futuristic UI | ⚠️ Bare minimal | ⚠️ Streamlit | ✅ Custom |
+| **Docker deploy** | ✅ `docker compose up` | ❌ Manual | ❌ Manual | ⚠️ K8s |
+| **Free deployment** | ✅ Vercel + Render | — | — | Paid only |
+
+### Design philosophy
+
+```
+Traditional approach:
+  pip install langchain openai chromadb ...    ← 20+ packages
+  from langchain import ...                    ← deep coupling
+  chain = RetrievalQA.from_chain_type(...)     ← opaque abstraction
+  result = chain.run(query)                    ← no streaming, no citations
+
+Unfold approach:
+  pip install openai faiss-cpu pypdf fastapi   ← 7 packages, zero abstractions
+  client = OpenAI(api_key=...)                 ← direct API, transparent
+  index.add(embed_texts(chunks))               ← explicit vector search
+  for delta in stream_chat(messages): ...      ← real streaming, full control
+```
+
+Unfold avoids framework abstraction layers. Every line of code is readable, debuggable, and replaceable. The result is fewer bugs, faster startup, and an app that actually works.
+
+---
 
 ## Testing
 
 ```bash
-backend/venv/bin/python backend/smoke_test.py     # 20-check end-to-end API flow (mocked LLM)
-backend/venv/bin/python backend/advanced_test.py  # 29-check suite: abuse, unicode, concurrency,
-                                                  #   eviction, corrupt storage, chunker fuzzing
-cd frontend && npm test                           # 10 vitest unit tests (SSE parser, utils)
-cd frontend && npm run build                      # strict typecheck + production build
+# Backend (50 checks, fully offline — LLM is mocked)
+backend/venv/bin/python backend/smoke_test.py      # 20 end-to-end API flow checks
+backend/venv/bin/python backend/advanced_test.py    # 29 abuse, concurrency, eviction, fuzzing
+
+# Frontend (19 checks — vitest + Testing Library + jsdom)
+cd frontend && npm test                             # utils, SSE parser, component renders
+
+# Full build verification
+cd frontend && npm run build                        # strict tsc + production bundle
 ```
 
-All 59 checks pass. Tests run fully offline — the LLM layer is mocked.
+**69 total checks** — all pass offline with no API key.
 
-## Project layout
+---
+
+## Deployment
+
+### Option A — Docker (simplest)
+
+```bash
+cp .env.example.docker .env   # set OPENAI_API_KEY
+docker compose up --build     # → http://localhost:8080
+```
+
+### Option B — Split cloud (free tiers)
+
+1. **Backend** → [Render](https://render.com) (Blueprint via `render.yaml`)
+2. **Frontend** → [Vercel](https://vercel.com) (imports repo, `vercel.json` rewrites `/api/*` to Render)
+
+### Option C — Local dev
+
+```bash
+./dev.sh   # starts backend :8000 + frontend :5173
+```
+
+---
+
+## Project structure
 
 ```
-backend/
-  main.py        FastAPI app & routes
-  config.py      Env-driven settings
-  ingest.py      PDF extraction & chunking
-  llm.py         OpenAI client (chat/embed/stream)
-  sessions.py    Session store, FAISS search, persistence
-  schemas.py     Pydantic models
-  smoke_test.py    End-to-end API tests
-  advanced_test.py Abuse/concurrency/persistence test suite
-frontend/
-  src/components/  Sidebar, Composer, MessageBubble, SourcePanel, …
-  src/lib/api.ts   Typed API client + SSE parser + XHR upload progress
+unfold/
+├── backend/
+│   ├── main.py          FastAPI app & routes
+│   ├── config.py        Env-driven settings (pydantic-settings)
+│   ├── ingest.py        PDF extraction, cleaning & chunking
+│   ├── llm.py           OpenAI client (chat / embed / stream)
+│   ├── sessions.py      Session store, FAISS search, persistence
+│   ├── schemas.py       Pydantic request/response models
+│   ├── smoke_test.py    20 end-to-end API tests (mocked LLM)
+│   ├── advanced_test.py 29 abuse, concurrency & edge-case tests
+│   └── Dockerfile       Production container image
+├── frontend/
+│   ├── src/
+│   │   ├── App.tsx                  Root state + streaming orchestration
+│   │   ├── main.tsx                 Entry with ErrorBoundary
+│   │   ├── index.css                Tailwind theme + glassmorphism
+│   │   ├── components/
+│   │   │   ├── Sidebar.tsx          Session list + new chat
+│   │   │   ├── EmptyState.tsx       Animated hero + suggestion cards
+│   │   │   ├── MessageBubble.tsx    Markdown + citations + thinking dots
+│   │   │   ├── Composer.tsx         Upload + message input
+│   │   │   ├── SourcePanel.tsx      Expandable source chunks
+│   │   │   ├── StatusBar.tsx        Health + connection + model info
+│   │   │   ├── ApiWarning.tsx       Missing API key banner
+│   │   │   └── ErrorBoundary.tsx    Crash recovery UI
+│   │   └── lib/
+│   │       ├── api.ts              Typed API client + SSE parser
+│   │       └── utils.ts            formatBytes, timeAgo, uid
+│   ├── *.test.tsx                   19 vitest + Testing Library tests
+│   ├── Dockerfile                   Multi-stage build → nginx
+│   └── nginx.conf                   SPA + SSE-safe API proxy
+├── docker-compose.yml    Full stack with persistent volume
+├── vercel.json           Frontend deploy + API rewrite
+├── render.yaml           Backend blueprint (Render)
+├── dev.sh                Local dev shortcut
+└── README.md             ← you are here
 ```
+
+---
+
+<p align="center">
+  Built with 🧠 by <a href="https://github.com/officialarghya29">officialarghya29</a><br/>
+  <sub>Unfold v3.0 — 69 tests, zero dependencies on LangChain</sub>
+</p>
