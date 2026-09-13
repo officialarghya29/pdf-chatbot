@@ -5,7 +5,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://neochat-api.onrender.com/api/:path*"
+      "destination": "https://unfold-api.onrender.com/api/:path*"
     }
   ]
 }

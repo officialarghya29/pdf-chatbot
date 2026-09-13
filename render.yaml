@@ -6,7 +6,7 @@
 # `starter` and uncomment the `disk:` block for durable storage.
 services:
   - type: web
-    name: neochat-api
+    name: unfold-api
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     plan: free
@@ -23,6 +23,6 @@ services:
       - key: CORS_ORIGINS
         value: https://pdf-chatbot-liard.vercel.app,https://pdf-chatbot.vercel.app
     # disk:                  # ← uncomment together with plan: starter
-    #   name: neochat-storage
+    #   name: unfold-storage
     #   mountPath: /app/storage
     #   sizeGB: 1

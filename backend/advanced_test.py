@@ -40,7 +40,7 @@ llm.stream_chat = lambda messages: iter(["answer one [1]. ", "answer two [2]."])
 llm.check_connection = lambda: None
 
 # isolated storage so tests never touch real data
-_tmp = tempfile.mkdtemp(prefix="neochat_test_")
+_tmp = tempfile.mkdtemp(prefix="unfold_test_")
 import config  # noqa: E402
 
 config.settings.data_dir = Path(_tmp) / "storage"
