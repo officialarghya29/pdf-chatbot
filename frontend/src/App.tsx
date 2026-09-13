@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Health, type ChatMessage, type SessionSummary, type Source } from './lib/api'
+import { ChevronDown } from 'lucide-react'
 import { uid } from './lib/utils'
 import Sidebar from './components/Sidebar'
 import EmptyState from './components/EmptyState'
@@ -91,6 +92,19 @@ export default function App() {
     [newChat, refreshSessions],
   )
 
+  const clearHistory = useCallback(
+    async (id: string) => {
+      try {
+        await api.clearMessages(id)
+      } catch {
+        /* ignore */
+      }
+      if (activeIdRef.current === id) setMessages([])
+      await refreshSessions()
+    },
+    [refreshSessions],
+  )
+
   const handleUploaded = useCallback(
     (summary: SessionSummary) => {
       setSessions((prev) => [summary, ...prev.filter((s) => s.session_id !== summary.session_id)])
@@ -154,6 +168,8 @@ export default function App() {
     [refreshSessions],
   )
 
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
+
   const stopStreaming = useCallback(() => abortRef.current?.(), [])
 
   // autoscroll: follow new tokens only when the user is already near the bottom
@@ -167,7 +183,18 @@ export default function App() {
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    pinnedRef.current = nearBottom
+    setShowScrollBtn(!nearBottom)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      pinnedRef.current = true
+      setShowScrollBtn(false)
+    }
   }, [])
 
   return (
@@ -178,6 +205,7 @@ export default function App() {
         onNew={newChat}
         onOpen={openSession}
         onDelete={deleteSession}
+        onClear={clearHistory}
       />
 
       <main className="relative flex min-w-0 flex-1 flex-col">
@@ -211,6 +239,18 @@ export default function App() {
         </div>
 
         <SourcePanel sources={sources} />
+
+        {/* jump to bottom */}
+        {showScrollBtn && (
+          <button
+            onClick={scrollToBottom}
+            className="fixed bottom-24 right-8 z-30 flex h-10 w-10 items-center justify-center
+              rounded-full border border-edge bg-panel/90 shadow-lg backdrop-blur-xl
+              text-slate-400 transition-all hover:border-cyan-500/40 hover:text-cyan-400"
+          >
+            <ChevronDown className="h-5 w-5" />
+          </button>
+        )}
 
         <Composer
           disabled={!!activeSession && messages.some((m) => m.pending)}

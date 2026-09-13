@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { FileText, AlertTriangle, Bot } from 'lucide-react'
+import { FileText, AlertTriangle, Bot, Check, Copy } from 'lucide-react'
 import type { ChatMessage } from '../lib/api'
 
 interface Props {
@@ -58,7 +59,10 @@ export default function MessageBubble({ message }: Props) {
           </div>
         )}
 
-        {/* citations */}
+        {/* copy + citations */}
+        {!message.pending && message.content && !message.error && (
+          <CopyButton text={message.content} />
+        )}
         {!message.pending && message.citations && message.citations.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {message.citations.map((c) => (
@@ -76,6 +80,31 @@ export default function MessageBubble({ message }: Props) {
         )}
       </div>
     </motion.div>
+  )
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // fallback: select text
+    }
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="mt-2 inline-flex items-center gap-1 rounded-lg border border-edge bg-white/[0.03]
+        px-2 py-1 text-[11px] text-slate-500 transition-colors hover:border-cyan-500/30 hover:text-cyan-400"
+    >
+      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
   )
 }
 
