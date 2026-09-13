@@ -69,6 +69,10 @@ export const api = {
     await handle(await fetch(`/api/sessions/${id}`, { method: 'DELETE' }))
   },
 
+  async clearMessages(id: string): Promise<void> {
+    await handle(await fetch(`/api/sessions/${id}/messages`, { method: 'DELETE' }))
+  },
+
   async upload(
     file: File,
     onProgress?: (pct: number) => void,

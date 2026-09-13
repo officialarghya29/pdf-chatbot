@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import time
 import uuid
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
 
 import llm
@@ -31,12 +34,23 @@ log = logging.getLogger("unfold")
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    ms = (time.monotonic() - start) * 1000
+    log.info("%s %s → %d (%.0fms)", request.method, request.url.path, response.status_code, ms)
+    return response
+
 
 PDF_MAGIC = b"%PDF-"
 
@@ -77,8 +91,6 @@ def _summary(s: Session) -> SessionSummary:
 
 def _extract_citations(answer: str, hits: list[dict]) -> list[Citation]:
     """Map [n] markers in the answer to page numbers."""
-    import re
-
     pages_by_n = {i + 1: h["page"] for i, h in enumerate(hits)}
     found: dict[int, int] = {}
     for match in re.findall(r"\[(\d{1,2})\]", answer):
@@ -126,6 +138,14 @@ def get_messages(session_id: str) -> dict:
     return {"messages": s.messages}
 
 
+@app.delete("/api/sessions/{session_id}/messages")
+def clear_messages(session_id: str) -> dict:
+    s = _session_or_404(session_id)
+    s.messages = []
+    s._persist()
+    return {"ok": True}
+
+
 @app.post("/api/upload", response_model=SessionSummary)
 async def upload_pdf(file: UploadFile = File(...)) -> SessionSummary:
     data = await file.read()
@@ -134,8 +154,6 @@ async def upload_pdf(file: UploadFile = File(...)) -> SessionSummary:
     tmp_path = settings.upload_dir / f"tmp_{uuid.uuid4().hex}.pdf"
     tmp_path.write_bytes(data)
 
-    # Heavy CPU/network work runs in a worker thread so the event loop
-    # stays responsive for other requests during indexing.
     try:
         result = await asyncio.to_thread(
             extract_pdf, str(tmp_path), file.filename or "document.pdf"
@@ -208,7 +226,6 @@ async def ask(req: AskRequest) -> StreamingResponse:
             persist_answer()
             return
         except (GeneratorExit, asyncio.CancelledError):
-            # client disconnected mid-stream — keep whatever was generated
             persist_answer()
             raise
 
