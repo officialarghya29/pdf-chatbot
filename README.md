@@ -42,6 +42,30 @@ npm run dev        # http://localhost:5173  (proxies /api → :8000)
 
 ---
 
+## Deployment
+
+**Option A — one container (simplest):**
+
+```bash
+cp .env.example.docker .env   # set OPENAI_API_KEY
+docker compose up --build     # app on http://localhost:8080
+```
+
+Sessions persist in the `neochat-data` Docker volume.
+
+**Option B — split cloud (free tiers):**
+
+1. **Backend on Render** — dashboard → New → Blueprint (uses `render.yaml`),
+   set `OPENAI_API_KEY` when prompted. `CORS_ORIGINS` is pre-wired for Vercel.
+2. **Frontend on Vercel** — import the repo; `vercel.json` builds the frontend
+   and rewrites `/api/*` to `https://neochat-api.onrender.com` (edit the host if
+   your Render service name differs). SSE streaming works through the rewrite.
+
+> Free Render instances sleep after inactivity; first request after a nap takes
+> ~30s. Upgrade or ping with a cron job to keep warm.
+
+---
+
 ## Features
 
 | Area | What you get |

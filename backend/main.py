@@ -131,10 +131,15 @@ async def upload_pdf(file: UploadFile = File(...)) -> SessionSummary:
     data = await file.read()
     _validate_upload(file, data)
 
+    tmp_path = settings.upload_dir / f"tmp_{uuid.uuid4().hex}.pdf"
+    tmp_path.write_bytes(data)
+
+    # Heavy CPU/network work runs in a worker thread so the event loop
+    # stays responsive for other requests during indexing.
     try:
-        tmp_path = settings.upload_dir / f"tmp_{uuid.uuid4().hex}.pdf"
-        tmp_path.write_bytes(data)
-        result = extract_pdf(str(tmp_path), file.filename or "document.pdf")
+        result = await asyncio.to_thread(
+            extract_pdf, str(tmp_path), file.filename or "document.pdf"
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -151,7 +156,7 @@ async def upload_pdf(file: UploadFile = File(...)) -> SessionSummary:
     )
 
     try:
-        session.build_index(result.chunks)  # calls embeddings API
+        await asyncio.to_thread(session.build_index, result.chunks)
     except llm.LLMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
