@@ -10,7 +10,7 @@ fi
 
 trap 'kill 0' EXIT
 echo "- starting backend on :8000"
-(cd backend && venv/bin/uvicorn main:app --reload --port 8000 &> /tmp/neochat-backend.log) &
+(cd backend && venv/bin/uvicorn main:app --reload --port 8000 &> /tmp/unfold-backend.log) &
 echo "- starting frontend on :5173"
-(cd frontend && npm run dev &> /tmp/neochat-frontend.log) &
+(cd frontend && npm run dev &> /tmp/unfold-frontend.log) &
 wait

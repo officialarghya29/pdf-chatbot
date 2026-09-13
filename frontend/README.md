@@ -1,4 +1,4 @@
-# NeoChat Frontend
+# Unfold Frontend
 
 React 18 + TypeScript + Vite + Tailwind CSS.
 

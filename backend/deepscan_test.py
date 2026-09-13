@@ -43,7 +43,7 @@ llm.embed_texts = fake_embed
 llm.check_connection = lambda: None
 
 # isolated storage
-_tmp = tempfile.mkdtemp(prefix="neochat_deepscan_")
+_tmp = tempfile.mkdtemp(prefix="unfold_deepscan_")
 import config  # noqa: E402
 config.settings.data_dir = Path(_tmp) / "storage"
 config.settings.upload_dir = Path(_tmp) / "uploads"

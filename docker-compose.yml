@@ -9,7 +9,7 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
-      - neochat-data:/app/storage
+      - unfold-data:/app/storage
     restart: unless-stopped
 
   frontend:
@@ -21,4 +21,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  neochat-data:
+  unfold-data:
