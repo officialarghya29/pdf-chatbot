@@ -8,6 +8,10 @@
 </h1>
 
 <p align="center">
+  <img src="frontend/public/screenshot.png" width="500" alt="Unfold UI screenshot" />
+</p>
+
+<p align="center">
   <strong>AI-powered PDF chat</strong> — upload any document, ask questions in natural language,
   get answers with inline citations mapped to exact pages.
   Built with FastAPI + FAISS + OpenAI + React 18 + Tailwind CSS.

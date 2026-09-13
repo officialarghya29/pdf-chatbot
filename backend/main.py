@@ -1,4 +1,4 @@
-"""NeoChat — AI PDF chatbot API."""
+"""Unfold — AI PDF chatbot API."""
 
 from __future__ import annotations
 
