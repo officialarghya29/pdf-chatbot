@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 import shutil
 import threading
 import time
 import uuid
+from collections import Counter
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +28,102 @@ from ingest import Chunk
 log = logging.getLogger("unfold.sessions")
 
 MAX_SESSIONS = 30
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _tokenize(text: str) -> list[str]:
+    """Lowercase alphanumeric tokens, discarding single characters."""
+    return [t for t in _TOKEN_RE.findall(text.lower()) if len(t) > 1]
+
+
+def _minmax(values: list[float]) -> list[float]:
+    """Scale to [0, 1]; a flat input maps to all zeros (never divides by zero)."""
+    if not values:
+        return []
+    lo, hi = min(values), max(values)
+    if hi - lo < 1e-9:
+        return [0.0] * len(values)
+    return [(v - lo) / (hi - lo) for v in values]
+
+
+class _LexicalStats:
+    """Cached BM25 statistics over one session's chunks.
+
+    BM25 complements embeddings: it rewards exact term matches and is not
+    fooled by a query whose meaning is close but whose wording is rare.
+    """
+
+    K1 = 1.5
+    B = 0.75
+
+    def __init__(self, chunks: list[Chunk]):
+        self.size = len(chunks)
+        self.term_freqs: list[Counter] = []
+        self.doc_freq: Counter = Counter()
+        self.lengths: list[int] = []
+        for chunk in chunks:
+            tokens = _tokenize(chunk.text)
+            freq = Counter(tokens)
+            self.term_freqs.append(freq)
+            self.doc_freq.update(freq.keys())
+            self.lengths.append(len(tokens))
+        self.avg_len = (sum(self.lengths) / len(self.lengths)) if self.lengths else 0.0
+
+    def scores(self, query: str) -> list[float]:
+        """One BM25 score per chunk, in chunk order."""
+        n = self.size
+        if n == 0:
+            return []
+        terms = set(_tokenize(query))
+        out = [0.0] * n
+        if not terms or self.avg_len <= 0:
+            return out
+
+        for term in terms:
+            df = self.doc_freq.get(term, 0)
+            if df == 0:
+                continue
+            idf = math.log(1.0 + (n - df + 0.5) / (df + 0.5))
+            for i, freq in enumerate(self.term_freqs):
+                f = freq.get(term, 0)
+                if not f:
+                    continue
+                norm = 1.0 - self.B + self.B * (self.lengths[i] / self.avg_len)
+                out[i] += idf * (f * (self.K1 + 1.0)) / (f + self.K1 * norm)
+        return out
+
+
+def _mmr_select(
+    candidate_ids: list[int],
+    relevance: dict[int, float],
+    embeddings: "np.ndarray",
+    k: int,
+    lam: float,
+) -> list[int]:
+    """Greedy Maximal Marginal Relevance selection.
+
+    Picks the highest-scoring candidate, then repeatedly picks the candidate
+    that best balances relevance against similarity to what is already
+    chosen, so the retrieved passages are not near-duplicates of each other.
+    """
+    selected: list[int] = []
+    remaining = list(candidate_ids)
+    while remaining and len(selected) < k:
+        best_id = remaining[0]
+        best_value: Optional[float] = None
+        for cid in remaining:
+            if selected:
+                redundancy = max(float(embeddings[cid] @ embeddings[s]) for s in selected)
+            else:
+                redundancy = 0.0
+            value = lam * relevance[cid] - (1.0 - lam) * redundancy
+            if best_value is None or value > best_value:
+                best_value = value
+                best_id = cid
+        selected.append(best_id)
+        remaining.remove(best_id)
+    return selected
 
 _PROMPT_HEADER = "You are Unfold, an expert AI assistant that answers questions about a specific PDF document."
 
@@ -42,6 +141,7 @@ class Session:
         self._chunks: list[Chunk] = []
         self._index: Optional[faiss.Index] = None
         self._embeddings: Optional[np.ndarray] = None
+        self._lex_stats: Optional[_LexicalStats] = None
         self._lock = threading.Lock()
         self._dirty = False
 
@@ -58,7 +158,14 @@ class Session:
         self._chunks = chunks
         self._index = index
         self._embeddings = vectors
+        self._lex_stats = None  # rebuilt lazily on the next search
         self._dirty = True
+
+    def _lexical(self) -> _LexicalStats:
+        """BM25 statistics for the current chunks, built once and cached."""
+        if self._lex_stats is None or self._lex_stats.size != len(self._chunks):
+            self._lex_stats = _LexicalStats(self._chunks)
+        return self._lex_stats
 
     @property
     def chunk_count(self) -> int:
@@ -66,19 +173,58 @@ class Session:
 
     # ------------------------------------------------------------- search
     def search(self, query: str, k: int | None = None) -> list[dict]:
-        if self._index is None:
+        """Retrieve the most useful passages for a query.
+
+        Three stages: a dense candidate pool from FAISS, an optional BM25
+        blend, then MMR diversification. Falls back to plain vector search
+        when hybrid retrieval is disabled and MMR is off.
+        """
+        if self._index is None or not self._chunks:
             return []
-        k = k or settings.top_k
+
+        n = len(self._chunks)
+        k = max(1, min(k or settings.top_k, n))
+
         qvec = np.asarray(llm.embed_texts([query]), dtype="float32")
         faiss.normalize_L2(qvec)
-        scores, ids = self._index.search(qvec, min(k, max(1, len(self._chunks))))
-        hits: list[dict] = []
-        for rank, (score, idx) in enumerate(zip(scores[0], ids[0])):
-            if idx == -1:
-                continue
-            c = self._chunks[idx]
-            hits.append({"rank": rank, "score": float(score), "text": c.text, "page": c.page})
-        return hits
+
+        # Candidate pool: generous enough that a strong lexical match which
+        # dense search ranks low still gets considered.
+        pool = min(n, max(k * 8, 40))
+        raw_scores, raw_ids = self._index.search(qvec, pool)
+        cand_ids = [int(i) for i in raw_ids[0] if i != -1]
+        dense = {int(i): float(s) for s, i in zip(raw_scores[0], raw_ids[0]) if i != -1}
+        if not cand_ids:
+            return []
+
+        if settings.hybrid_search:
+            lexical = self._lexical().scores(query)
+            dense_norm = _minmax([dense[i] for i in cand_ids])
+            lex_norm = _minmax([lexical[i] for i in cand_ids])
+            alpha = min(max(settings.hybrid_alpha, 0.0), 1.0)
+            combined = {
+                cid: (1.0 - alpha) * d + alpha * l
+                for cid, d, l in zip(cand_ids, dense_norm, lex_norm)
+            }
+        else:
+            combined = dict(dense)
+
+        if settings.mmr_lambda < 1.0 and self._embeddings is not None and len(cand_ids) > k:
+            order = _mmr_select(
+                cand_ids, combined, self._embeddings, k, max(0.0, settings.mmr_lambda)
+            )
+        else:
+            order = sorted(cand_ids, key=lambda i: combined[i], reverse=True)[:k]
+
+        return [
+            {
+                "rank": rank,
+                "score": float(combined[idx]),
+                "text": self._chunks[idx].text,
+                "page": self._chunks[idx].page,
+            }
+            for rank, idx in enumerate(order)
+        ]
 
     # ------------------------------------------------------------- history
     def add_message(self, role: str, content: str) -> None:
@@ -164,6 +310,7 @@ class Session:
                 s._chunks = chunks
                 s._embeddings = vectors
                 s._index = index
+                s._lex_stats = None
             return s
         except Exception as exc:
             log.warning("Failed to load session %s: %s", session_id, exc)

@@ -12,7 +12,7 @@ import uuid
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 import llm
 from config import settings
@@ -104,6 +104,32 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, default=str)}\n\n"
 
 
+def _to_markdown(s: Session) -> str:
+    """Render a session's conversation as a portable Markdown transcript."""
+    lines = [
+        f"# {s.title}",
+        "",
+        f"- **Document:** `{s.filename}`",
+        f"- **Pages:** {s.pages}",
+        f"- **Chunks indexed:** {s.chunk_count}",
+        "",
+    ]
+    if not s.messages:
+        lines.append("_No messages yet._")
+        return "\n".join(lines) + "\n"
+
+    lines.append("---")
+    for message in s.messages:
+        speaker = "You" if message.get("role") == "user" else "Unfold"
+        lines.extend(["", f"### {speaker}", "", (message.get("content") or "").strip()])
+    return "\n".join(lines) + "\n"
+
+
+def _safe_filename(title: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", title).strip("-.")
+    return (cleaned[:60] or "unfold-chat") + ".md"
+
+
 # ------------------------------------------------------------------ routes
 @app.get("/api/health", response_model=HealthResponse)
 def health() -> HealthResponse:
@@ -144,6 +170,17 @@ def clear_messages(session_id: str) -> dict:
     s.messages = []
     s._persist()
     return {"ok": True}
+
+
+@app.get("/api/sessions/{session_id}/export")
+def export_session(session_id: str) -> Response:
+    """Download the conversation as a Markdown transcript."""
+    s = _session_or_404(session_id)
+    return Response(
+        content=_to_markdown(s),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{_safe_filename(s.title)}"'},
+    )
 
 
 @app.post("/api/upload", response_model=SessionSummary)

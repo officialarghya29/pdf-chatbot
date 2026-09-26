@@ -79,7 +79,9 @@ UPLOAD
 
 QUERY
   question ──► embed the query
-           ──► FAISS search: top-5 nearest chunks (with page numbers)
+           ──► retrieve: FAISS candidate pool for dense similarity
+           ──► score:   blend dense similarity with a BM25 lexical score
+           ──► select:  MMR over the top-5 so they are not near-duplicates
            ──► build prompt: system rules + retrieved context + recent history + question
            ──► stream the completion token by token over SSE
            ──► parse [n] markers from the final answer, resolve to page numbers
@@ -176,7 +178,8 @@ cp .env.example.docker .env     # set OPENAI_API_KEY
 |---|---|
 | PDF ingestion | Page-by-page text extraction; strips repeating headers/footers; repairs hyphenated line breaks; detects encrypted and image-only (scanned) PDFs and reports them clearly |
 | Chunking | Sliding-window word chunking so passages never lose their page number |
-| Vector search | FAISS `IndexFlatIP` over normalized embeddings — exact cosine search, no approximate recall loss |
+| Hybrid retrieval | FAISS `IndexFlatIP` cosine search over normalized embeddings, blended with a hand-written BM25 lexical score so exact terms (IDs, names, numbers) survive |
+| MMR diversification | Greedy Maximal Marginal Relevance over the top-k, so five retrieved passages are five pieces of evidence rather than five paraphrases |
 | Streaming answers | Server-Sent Events; answers render token by token |
 | Inline citations | `[n]` markers parsed from the answer and resolved to the pages they came from |
 | Persistent sessions | Indexes, metadata, and chat history are written to disk and reload on restart |
@@ -214,6 +217,7 @@ All routes are prefixed with `/api`.
 | `GET` | `/api/sessions/{id}/messages` | Chat history for a session |
 | `DELETE` | `/api/sessions/{id}` | Delete the session, its index, and its history |
 | `DELETE` | `/api/sessions/{id}/messages` | Clear the chat history, keep the document |
+| `GET` | `/api/sessions/{id}/export` | Download the conversation as a Markdown transcript |
 | `POST` | `/api/ask` | Ask a question → SSE stream |
 
 ### SSE stream format
@@ -267,6 +271,9 @@ All settings live in `backend/.env`. See `backend/.env.example`.
 | `CHUNK_OVERLAP` | `200` | Overlap between adjacent chunks |
 | `TOP_K` | `5` | Passages retrieved per question |
 | `MAX_HISTORY` | `10` | Conversation turns sent to the model |
+| `HYBRID_SEARCH` | `true` | Blend dense and lexical retrieval; `false` = pure vector search |
+| `HYBRID_ALPHA` | `0.35` | Lexical share of the blended score (0.0–1.0) |
+| `MMR_LAMBDA` | `0.7` | Diversification strength; `1.0` = pure relevance |
 | `MAX_UPLOAD_MB` | `25` | Upload size limit |
 | `CORS_ORIGINS` | `*` | Comma-separated allowed origins |
 
@@ -343,14 +350,15 @@ frontend is actually served from rather than `*`.
 
 ## Testing
 
-95 automated checks. They run entirely offline — the language model is mocked,
+128 automated checks. They run entirely offline — the language model is mocked,
 so the suites cost nothing and are deterministic.
 
 ```bash
-# Backend — 71 checks
+# Backend — 104 checks
 python backend/smoke_test.py       # 20  end-to-end API flow
 python backend/advanced_test.py    # 29  abuse, concurrency, eviction, fuzzing
 python backend/deepscan_test.py    # 22  persistence, logging, stream failure, edges
+python backend/retrieval_test.py   # 33  BM25, hybrid blending, MMR, export endpoint
 
 # Frontend — 24 checks
 cd frontend && npm test            # vitest + Testing Library + jsdom
@@ -368,10 +376,11 @@ cd frontend && npm run build       # strict tsc, then vite build
 | Concurrency | 4 | Parallel asks; ask + clear + history simultaneously |
 | Edge cases | 16 | Path separators, hostile strings, whitespace-only queries, unicode, extra fields |
 | Components | 10 | MessageBubble, Composer, Sidebar, copy button, thinking state |
+| Retrieval engine | 33 | BM25 scoring, hybrid blending, MMR diversity, degenerate and empty indices |
 | SSE parsing | 7 | Events split across chunk boundaries, truncation, malformed events, abort |
 
 A few checks exercise more than one of these areas at once, so the per-area
-counts are a rough guide and do not add up to exactly 95.
+counts are a rough guide and do not add up to exactly 128.
 
 Several real bugs were found by these tests and fixed: a whitespace-only query
 that passed validation, a truncated stream that left the UI spinning forever,
@@ -440,7 +449,7 @@ multi-hop agents, or managed tracing, a framework likely earns its keep.
   will need an IVF/HNSW index beyond that.
 - Text extraction quality follows the source PDF. Scanned documents without an
   OCR layer are rejected rather than silently returning nothing.
-- Retrieval is single-pass. No query rewriting, reranking, or hybrid BM25.
+- Retrieval is single-pass: no query rewriting, no cross-encoder reranker, no multi-hop search. Hybrid BM25 blending and MMR diversification are built in.
 - Sessions are stored on local disk; running multiple backend replicas against
   a shared store is not supported.
 
@@ -477,8 +486,8 @@ pdf-chatbot/
 │   ├── sessions.py           Session store, FAISS index, persistence
 │   ├── schemas.py            Request/response models
 │   ├── smoke_test.py         20 end-to-end API tests
-│   ├── advanced_test.py      29 abuse / concurrency / edge-case tests
-│   ├── deepscan_test.py      22 persistence / logging / failure tests
+│   ├── advanced_test.py      29 abuse / concurrency / edge-case tests│   ├── deepscan_test.py     22 persistence / logging / failure tests
+│   ├── retrieval_test.py    33 retrieval engine / export tests
 │   ├── requirements.txt      Python dependencies
 │   ├── .env.example          Environment template
 │   └── Dockerfile            Backend image
@@ -511,7 +520,7 @@ pdf-chatbot/
 
 ## Author
 
-**Arghya Bose** — [@officialarghya29](https://github.com/officialarghya29)
+**officialarghya29** — [github.com/officialarghya29](https://github.com/officialarghya29)
 
 Designed and built as a complete, deployable RAG application: backend,
 frontend, tests, and deployment configuration.
@@ -535,10 +544,10 @@ regression test with every bug fix; TypeScript stays in strict mode.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). © 2026 Arghya Bose.
+MIT — see [LICENSE](LICENSE). © 2026 officialarghya29.
 
 ---
 
 <p align="center">
-  <sub>Unfold v3.0.0 · 95 tests · 11 backend dependencies · no orchestration framework</sub>
+  <sub>Unfold v3.0.0 · 128 tests · 11 backend dependencies · no orchestration framework</sub>
 </p>

@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     top_k: int = 5
     max_history: int = 10
 
+    # --- Retrieval --------------------------------------------------------
+    # Hybrid search blends dense (embedding) similarity with a lexical BM25
+    # score, which recovers exact terms (IDs, names, numbers) that dense
+    # vectors often rank poorly. mmr_lambda diversifies the final set:
+    # 1.0 = pure relevance, lower = more diverse passages.
+    hybrid_search: bool = True
+    hybrid_alpha: float = 0.35
+    mmr_lambda: float = 0.7
+
     # --- Uploads ----------------------------------------------------------
     max_upload_mb: int = 25
 
