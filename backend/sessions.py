@@ -125,6 +125,7 @@ def _mmr_select(
         remaining.remove(best_id)
     return selected
 
+
 _PROMPT_HEADER = "You are Unfold, an expert AI assistant that answers questions about a specific PDF document."
 
 
