@@ -1,21 +1,30 @@
-MIT License
+Copyright (c) 2026 officialarghya29. All rights reserved.
 
-Copyright (c) 2026 officialarghya29. All rights in this software belong to the author.
+Unfold — including its source code, architecture, documentation, user
+interface design, name, logo, and all related materials (the "Software") — is
+the exclusive property of officialarghya29 (the "Author").
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+No part of the Software may be copied, reproduced, modified, adapted,
+translated, merged, published, distributed, sublicensed, sold, rented, or
+otherwise used or exploited, in whole or in part, by any means, without the
+prior written permission of the Author.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This includes, without limitation:
+
+  - Copying or reusing any portion of the source code in another project.
+  - Creating derivative works based on the Software.
+  - Distributing the Software, modified or unmodified, to any third party.
+  - Using the Software or any derivative of it as part of a commercial product
+    or service.
+  - Reproducing the "Unfold" name, logo, or visual design.
+
+Making the source code publicly viewable on a hosting service does not grant,
+and shall not be construed as granting, any licence, right, or permission to
+use the Software in any way beyond viewing it.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

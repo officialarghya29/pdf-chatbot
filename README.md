@@ -35,7 +35,7 @@
 
 ## What Unfold is
 
-Unfold is a self-hostable application for asking questions about PDF documents.
+Unfold is an application for asking questions about PDF documents.
 It combines three ordinary pieces — a PDF text extractor, a vector index, and a
 chat model — into one product with a working UI, persistent sessions, and
 page-level citations.
@@ -532,7 +532,13 @@ and bug reports are welcome through GitHub Issues.
 
 ## Contributing
 
-1. Fork the repository and branch from `main`.
+Unfold is a proprietary project. Ideas, bug reports, and pull requests are
+welcome, but no right to use, copy, or redistribute the code is granted by
+this repository — see [LICENSE](LICENSE). By opening a pull request you agree
+that any accepted contribution becomes part of the project under those same
+terms.
+
+1. Branch from `main` in a clone you control.
 2. Make your change.
 3. Run the tests: `python backend/smoke_test.py`, then `cd frontend && npm test`.
 4. Open a pull request describing what changed and why.
@@ -544,7 +550,7 @@ regression test with every bug fix; TypeScript stays in strict mode.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). © 2026 officialarghya29.
+Proprietary — all rights reserved. © 2026 officialarghya29. See [LICENSE](LICENSE).
 
 ---
 
