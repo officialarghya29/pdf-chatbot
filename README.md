@@ -12,115 +12,120 @@
 </p>
 
 <p align="center">
-  <strong>AI-powered PDF chat</strong> — upload any document, ask questions in natural language,<br/>
-  get answers with inline citations mapped to exact pages. No LangChain, no bloat.
+  A full-stack <strong>retrieval-augmented PDF chat</strong> application.<br/>
+  Upload a document, ask questions in plain language, and get streamed answers<br/>
+  with citations mapped to the exact pages they came from.
 </p>
 
 <p align="center">
-  <a href="#what-is-unfold">What is it</a> ·
+  <a href="#what-unfold-is">Overview</a> ·
   <a href="#how-it-works">How it works</a> ·
-  <a href="#quick-start">Quick Start</a> ·
+  <a href="#quick-start">Quick start</a> ·
   <a href="#features">Features</a> ·
   <a href="#api-reference">API</a> ·
-  <a href="#deployment">Deploy</a> ·
-  <a href="#why-unfold">Why Unfold?</a> ·
-  <a href="#troubleshooting">Troubleshooting</a>
+  <a href="#configuration">Config</a> ·
+  <a href="#testing">Testing</a> ·
+  <a href="#deployment">Deployment</a> ·
+  <a href="#design-notes">Design notes</a> ·
+  <a href="#troubleshooting">Troubleshooting</a> ·
+  <a href="#author">Author</a>
 </p>
 
 ---
 
-## What is Unfold?
+## What Unfold is
 
-**Unfold** is a full-stack AI application that lets you **chat with your PDF documents**. Upload a research paper, textbook, legal document, or report — then ask questions in natural language. Unfold reads the document, finds relevant passages, and generates answers with **inline citations** that map to specific pages.
+Unfold is a self-hostable application for asking questions about PDF documents.
+It combines three ordinary pieces — a PDF text extractor, a vector index, and a
+chat model — into one product with a working UI, persistent sessions, and
+page-level citations.
 
-### The problem it solves
+You give it a document. It breaks the document into passages, embeds those
+passages, and stores them in a local vector index. When you ask a question, it
+retrieves the passages most similar to your question, hands them to the model as
+context, and streams the answer back while keeping track of which passages were
+used. The `[1]`, `[2]` markers in an answer are not decorative — each one points
+at a page you can open in the source panel.
 
-Traditional document reading is slow and linear. You have to:
-- Scroll through 50+ pages to find one fact
-- Manually cross-reference sections
-- Copy-paste quotes into notes
-- Re-read entire chapters to understand context
+### What it is not
 
-**Unfold eliminates all of that.** Ask "What are the main conclusions?" and get a cited, structured answer in 2 seconds.
+- It is not a general-purpose chatbot. It only answers from the document you
+  uploaded, and it will say so when the document does not contain an answer.
+- It is not a document manager. One PDF per session by design.
+- It is not tuned for very large corpora. FAISS `IndexFlatIP` is a brute-force
+  index; it is fast for hundreds of thousands of vectors and simple to reason
+  about, but it is not a sharded production search cluster.
 
-### How it's different
+### Why it exists
 
-Unlike most AI chatbots that hallucinate answers, Unfold:
-1. **Retrieves real passages** from your document using vector search
-2. **Cites its sources** with inline `[1]`, `[2]` markers mapped to page numbers
-3. **Streams answers** in real time as the model generates them
-4. **Remembers context** — multi-turn conversations about the same document
-5. **Persists everything** — sessions survive server restarts
+Reading a long PDF to find one fact is a slow, linear process. Search finds
+substrings, not meaning. Unfold answers the actual question and shows you where
+the answer came from, which is the part most naive RAG demos skip.
 
 ---
 
 ## How it works
 
-### The RAG pipeline
-
-Unfold uses **Retrieval-Augmented Generation (RAG)** — a technique that grounds LLM responses in real document content:
+### Pipeline
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        UPLOAD PHASE                              │
-│                                                                  │
-│  PDF ──► pypdf extracts text per page                           │
-│       ──► Cleaning: remove headers/footers, fix hyphens         │
-│       ──► Chunking: 1000-word sliding window (200 overlap)      │
-│       ──► Embedding: OpenAI text-embedding-3-small → vectors    │
-│       ──► Indexing: FAISS cosine similarity index               │
-└──────────────────────────────────────────────────────────────────┘
+UPLOAD
+  PDF ──► pypdf: extract text page by page
+      ──► clean:  strip repeating headers/footers, repair hyphenated line breaks
+      ──► chunk:  sliding window of words (size 1000, overlap 200)
+      ──► embed:  text-embedding-3-small, batched
+      ──► index:  FAISS IndexFlatIP over L2-normalized vectors (cosine)
+      ──► store:  session meta + index persisted to disk
 
-┌──────────────────────────────────────────────────────────────────┐
-│                        QUERY PHASE                               │
-│                                                                  │
-│  Question ──► Embed the query → vector                          │
-│           ──► FAISS search → top-5 most similar chunks          │
-│           ──► Build prompt: system + context + history + query   │
-│           ──► Stream LLM response token by token                │
-│           ──► Extract [n] citations from answer text            │
-└──────────────────────────────────────────────────────────────────┘
+QUERY
+  question ──► embed the query
+           ──► FAISS search: top-5 nearest chunks (with page numbers)
+           ──► build prompt: system rules + retrieved context + recent history + question
+           ──► stream the completion token by token over SSE
+           ──► parse [n] markers from the final answer, resolve to page numbers
+           ──► persist the turn so history survives a restart
 ```
 
-### Data flow diagram
+### Request flow
 
 ```
-User opens app          Frontend loads            Backend
-     │                      │                       │
-     │  ──► GET /health ──► │ ──► health check ──► │
-     │                      │ ◄── {version, key} ── │
-     │  ◄── UI renders ──── │                       │
-     │                      │                       │
-User drops PDF         XHR upload (progress %)     Backend
-     │                      │                       │
-     │  ──► drag & drop ──► │ ──► POST /upload ──► │
-     │                      │     multipart file    │
-     │                      │     ───────────────── │  pypdf → text
-     │                      │                       │  chunk → vectors
-     │                      │                       │  FAISS → index
-     │                      │ ◄── 200 + session ── │
-     │  ◄── sidebar updates │                       │
-     │                      │                       │
-User asks question     SSE stream                  Backend
-     │                      │                       │
-     │  ──► POST /ask ──────│──────────────────────►│
-     │                      │  ◄── event: start ─── │  (sources found)
-     │                      │  ◄── event: delta ─── │  "The answer"
-     │  ◄── tokens appear   │  ◄── event: delta ─── │  " is 42"
-     │  ◄── [citation] ──── │  ◄── event: done ────│  (citations)
+  Browser                  Vite dev server            FastAPI backend
+     │                            │                          │
+     │  GET /api/health ─────────►│─────────────────────────►│
+     │◄── {name, version, llm_configured: bool} ─────────────│
+     │                            │                          │
+     │  drag & drop a PDF         │                          │
+     │  POST /api/upload (XHR, progress) ───────────────────►│
+     │                            │                    extract │
+     │                            │                    chunk   │
+     │                            │                    embed   │
+     │                            │                    index   │
+     │◄── {session_id, title, pages, chunks} ────────────────│
+     │                            │                          │
+     │  POST /api/ask (SSE) ─────────────────────────────────►│
+     │◄── event: start  {sources:[...]} ─────────────────────│
+     │◄── event: delta  {text:"..."}  (repeated) ────────────│
+     │◄── event: done   {answer, citations} ─────────────────│
 ```
+
+Streaming matters here: a four-paragraph answer takes several seconds to
+generate, and waiting for the whole thing feels broken. Tokens are rendered as
+they arrive. If the stream is cut without a `done` event — a proxy timeout, a
+server restart — the client detects the truncation and surfaces a retryable
+error instead of spinning forever.
 
 ---
 
-## Quick Start
+## Quick start
 
-### Prerequisites
+### Requirements
 
-- Python 3.10+
-- Node.js 18+
-- An [OpenAI API key](https://platform.openai.com/api-keys) (or any compatible provider)
+- Python 3.10 or newer
+- Node.js 18 or newer
+- An API key for OpenAI, or any OpenAI-compatible provider (see
+  [Configuration](#configuration))
 
-### 1. Clone & install
+### Install
 
 ```bash
 git clone https://github.com/officialarghya29/pdf-chatbot.git
@@ -129,9 +134,9 @@ cd pdf-chatbot
 # Backend
 cd backend
 python3 -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env              # ← add your OPENAI_API_KEY
+cp .env.example .env            # then put your OPENAI_API_KEY in it
 cd ..
 
 # Frontend
@@ -140,103 +145,108 @@ npm install
 cd ..
 ```
 
-### 2. Run
+### Run
 
 ```bash
-# Terminal 1 — Backend (port 8000)
-cd backend
-uvicorn main:app --reload --port 8000
+# Terminal 1 — backend on :8000
+cd backend && uvicorn main:app --reload --port 8000
 
-# Terminal 2 — Frontend (port 5173)
-cd frontend
-npm run dev
+# Terminal 2 — frontend on :5173
+cd frontend && npm run dev
 ```
 
-Open **http://localhost:5173** → upload a PDF → start asking questions.
+Open `http://localhost:5173`, upload a PDF, and start asking questions. In
+development Vite proxies `/api/*` to the backend, so there is nothing else to
+configure.
 
-### Or use the shortcut
+### Or use the helper script
 
 ```bash
-cp .env.example.docker .env       # set OPENAI_API_KEY
-./dev.sh                          # starts both servers
+cp .env.example.docker .env     # set OPENAI_API_KEY
+./dev.sh                        # starts both servers, Ctrl+C stops both
 ```
 
 ---
 
 ## Features
 
-### Core capabilities
+### Core
 
-| Feature | Description |
-|---------|-------------|
-| 📄 **PDF Ingestion** | Extracts text page-by-page, cleans headers/footers, repairs hyphens, detects encrypted/scanned PDFs |
-| ✂️ **Smart Chunking** | Sliding-window word chunking with configurable size/overlap, per-page metadata preserved |
-| 🔍 **Vector Search** | FAISS cosine similarity with L2-normalized embeddings, top-k configurable |
-| ⚡ **Streaming Chat** | SSE token streaming — answers appear in real time as the model generates them |
-| 📌 **Inline Citations** | `[1]`, `[2]` markers in answers map to exact pages via expandable source chips |
-| 💾 **Persistence** | FAISS indices, chat history, and session metadata survive server restarts (disk-backed) |
-| 🔒 **Concurrency-Safe** | Thread-safe session store, heavy work offloaded to worker threads |
-| 🛡️ **Error Boundary** | React crash recovery UI; every OpenAI error mapped to a friendly message |
-| 📱 **Mobile Ready** | Responsive sidebar with hamburger menu, works on phones and tablets |
+| Feature | Detail |
+|---|---|
+| PDF ingestion | Page-by-page text extraction; strips repeating headers/footers; repairs hyphenated line breaks; detects encrypted and image-only (scanned) PDFs and reports them clearly |
+| Chunking | Sliding-window word chunking so passages never lose their page number |
+| Vector search | FAISS `IndexFlatIP` over normalized embeddings — exact cosine search, no approximate recall loss |
+| Streaming answers | Server-Sent Events; answers render token by token |
+| Inline citations | `[n]` markers parsed from the answer and resolved to the pages they came from |
+| Persistent sessions | Indexes, metadata, and chat history are written to disk and reload on restart |
+| Provider-agnostic | Any OpenAI-compatible endpoint — OpenAI, Azure, OpenRouter, Groq, local Ollama |
+| Concurrency-safe | Session store is lock-protected; PDF parsing and embedding run in worker threads so indexing never blocks the event loop |
 
-### UX enhancements
+### Interface
 
-| Feature | Description |
-|---------|-------------|
-| 📋 **Copy Button** | One-click copy on every assistant message with 2-second visual feedback |
-| ⬇️ **Jump to Bottom** | Floating button appears when you scroll up, auto-scrolls on new tokens |
-| 🧹 **Clear History** | Eraser icon per session clears chat without deleting the document |
-| ⚠️ **API Key Warning** | Dismissible amber banner when OPENAI_API_KEY is missing, with setup instructions |
-| 🎨 **Glassmorphism UI** | Futuristic dark theme with ambient gradients, blur effects, and animated hero |
-| ⚙️ **Gzip Compression** | Automatic response compression for all API endpoints |
-| 📝 **Request Logging** | Every request logged with method, path, status code, and latency |
+| Feature | Detail |
+|---|---|
+| Session sidebar | Create, switch, clear, and delete sessions; document count per session |
+| Source panel | Expandable per-answer list of retrieved passages with page chips |
+| Copy answer | One-click copy on any assistant message |
+| Jump to bottom | Appears when you scroll up; disappears at the bottom. Auto-scroll only follows while you are already near the bottom |
+| Upload progress | Drag-and-drop with a percentage progress bar |
+| Clear history | Wipes the conversation but keeps the document indexed |
+| API key warning | An amber banner when the backend reports no key configured, so the failure is visible before the first upload |
+| Error boundary | A render crash shows a recoverable screen instead of a blank page |
+| Responsive | Hamburger sidebar on small screens |
+| Compression | Gzip on API responses |
+| Request logging | Method, path, status, and latency for every request |
 
 ---
 
-## API Reference
+## API reference
 
-### Endpoints
+All routes are prefixed with `/api`.
 
-| Method | Route | Description |
-|--------|-------|-------------|
-| `GET` | `/api/health` | Health check + LLM config status |
-| `POST` | `/api/upload` | Upload PDF → creates session (multipart) |
-| `GET` | `/api/sessions` | List all sessions (newest first) |
-| `GET` | `/api/sessions/{id}` | Session summary (title, pages, chunks) |
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | Status, version, and whether an LLM key is configured |
+| `POST` | `/api/upload` | Upload a PDF (multipart) → creates a session |
+| `GET` | `/api/sessions` | List sessions, newest first |
+| `GET` | `/api/sessions/{id}` | One session's summary (title, pages, chunks) |
 | `GET` | `/api/sessions/{id}/messages` | Chat history for a session |
-| `DELETE` | `/api/sessions/{id}` | Delete session + vector index + history |
-| `DELETE` | `/api/sessions/{id}/messages` | Clear chat history (keeps session) |
-| `POST` | `/api/ask` | Ask a question → **SSE stream** (`start` → `delta`s → `done`) |
+| `DELETE` | `/api/sessions/{id}` | Delete the session, its index, and its history |
+| `DELETE` | `/api/sessions/{id}/messages` | Clear the chat history, keep the document |
+| `POST` | `/api/ask` | Ask a question → SSE stream |
 
-### SSE event format
+### SSE stream format
 
 ```
-data: {"type": "start", "sources": [{"page": 3, "snippet": "..."}]}
+data: {"type":"start","sources":[{"page":3,"snippet":"..."}]}
 
-data: {"type": "delta",  "text": "The answer"}
+data: {"type":"delta","text":"The authors"}
 
-data: {"type": "delta",  "text": " is 42"}
+data: {"type":"delta","text":" report a 12% improvement"}
 
-data: {"type": "done",   "answer": "The answer is 42", "citations": [{"n": 1, "page": 3}]}
+data: {"type":"done","answer":"The authors report a 12% improvement.","citations":[{"n":1,"page":3}]}
 ```
 
-### Example: Upload → Ask flow
+An error mid-stream is delivered as `{"type":"error","message":"..."}` so the
+client can show it without the HTTP request failing.
+
+### Example
 
 ```bash
-# Upload
+# Upload a document
 curl -X POST http://localhost:8000/api/upload -F "file=@paper.pdf"
-# Returns: {"session_id": "a1b2c3d4e5f6", "title": "Paper Title", "pages": 12, "chunks": 15, ...}
+# → {"session_id":"a1b2c3d4e5f6","title":"…","pages":12,"chunks":15}
 
-# Ask
+# Ask about it
 curl -N -X POST http://localhost:8000/api/ask \
   -H "Content-Type: application/json" \
-  -d '{"session_id": "a1b2c3d4e5f6", "query": "What are the key findings?"}'
-# Streams: start → deltas → done with citations
+  -d '{"session_id":"a1b2c3d4e5f6","query":"What are the key findings?"}'
 
-# Clear history
+# Clear the conversation
 curl -X DELETE http://localhost:8000/api/sessions/a1b2c3d4e5f6/messages
 
-# Delete session
+# Remove the document
 curl -X DELETE http://localhost:8000/api/sessions/a1b2c3d4e5f6
 ```
 
@@ -244,290 +254,291 @@ curl -X DELETE http://localhost:8000/api/sessions/a1b2c3d4e5f6
 
 ## Configuration
 
-### Environment variables
+All settings live in `backend/.env`. See `backend/.env.example`.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPENAI_API_KEY` | — | **Required.** Your secret key ([get one](https://platform.openai.com/api-keys)) |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Compatible endpoint (Azure, OpenRouter, Groq) |
+| Variable | Default | Meaning |
+|---|---|---|
+| `OPENAI_API_KEY` | — | **Required.** Key for your provider |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Compatible endpoint |
 | `CHAT_MODEL` | `gpt-4o-mini` | Chat completion model |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
-| `TEMPERATURE` | `0.3` | Response randomness (0 = deterministic, 1 = creative) |
-| `CHUNK_SIZE` | `1000` | Approximate characters per chunk |
+| `TEMPERATURE` | `0.3` | Generation randomness |
+| `CHUNK_SIZE` | `1000` | Words per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between adjacent chunks |
-| `TOP_K` | `5` | Chunks retrieved per query |
-| `MAX_HISTORY` | `10` | Conversation turns sent to the LLM |
-| `MAX_UPLOAD_MB` | `25` | Max PDF upload size |
+| `TOP_K` | `5` | Passages retrieved per question |
+| `MAX_HISTORY` | `10` | Conversation turns sent to the model |
+| `MAX_UPLOAD_MB` | `25` | Upload size limit |
 | `CORS_ORIGINS` | `*` | Comma-separated allowed origins |
 
-### Using other providers
-
-Unfold works with any OpenAI-compatible API:
+### Other providers
 
 ```bash
-# OpenRouter (access GPT-4, Claude, etc.)
+# OpenRouter
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 OPENAI_API_KEY=sk-or-...
 CHAT_MODEL=openai/gpt-4o-mini
 
-# Groq (fast inference)
+# Groq
 OPENAI_BASE_URL=https://api.groq.com/openai/v1
 OPENAI_API_KEY=gsk_...
 CHAT_MODEL=llama-3.1-70b-versatile
 
-# Local (Ollama)
+# Local Ollama
 OPENAI_BASE_URL=http://localhost:11434/v1
 OPENAI_API_KEY=ollama
 CHAT_MODEL=llama3.1
 EMBEDDING_MODEL=nomic-embed-text
 ```
 
+If you use a remote provider, remember to set `CORS_ORIGINS` to the origin your
+frontend is actually served from rather than `*`.
+
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  Frontend (Vite + React 18 + TypeScript + Tailwind CSS)            │
-│                                                                     │
-│  ┌────────────┐  ┌──────────┐  ┌────────────┐  ┌──────────────┐   │
-│  │ Sidebar     │  │ Chat     │  │ Source     │  │ Composer     │   │
-│  │ (sessions)  │  │ (stream) │  │ Panel      │  │ (upload+ask) │   │
-│  └──────┬─────┘  └────┬─────┘  └────────────┘  └──────┬───────┘   │
-│         │              │                                │            │
-│         └──────────────┼────────────────────────────────┘            │
-│                        │ SSE events + XHR upload                    │
-└────────────────────────┼────────────────────────────────────────────┘
-                         │  /api/*
-┌────────────────────────┼────────────────────────────────────────────┐
-│  Backend (FastAPI + uvicorn)                                        │
-│                        │                                            │
-│  ┌─────────────────────┴──────────────────────────────────────┐    │
-│  │ Routes: /api/health  /api/upload  /api/ask  /api/sessions  │    │
-│  └────────┬──────────────────┬───────────────────┬────────────┘    │
-│           │                  │                   │                   │
-│  ┌────────▼─────────┐ ┌─────▼──────────┐ ┌──────▼────────────┐   │
-│  │ ingest.py         │ │ sessions.py    │ │ llm.py            │   │
-│  │  pypdf → text     │ │  FAISS index   │ │  OpenAI client    │   │
-│  │  cleaning         │ │  search        │ │  streaming chat   │   │
-│  │  chunking         │ │  persistence   │ │  embeddings       │   │
-│  └──────────────────┘ │  history       │ │  error mapping    │   │
-│                        └────────────────┘ └───────────────────┘   │
+┌────────────────────────────────────────────────────────────────────┐
+│  Frontend — Vite + React 18 + TypeScript + Tailwind                │
+│                                                                    │
+│  App.tsx  ─ orchestrates sessions, streaming, unread state         │
+│    ├── Sidebar       sessions, clear, delete, mobile drawer        │
+│    ├── EmptyState    landing + suggested questions                 │
+│    ├── MessageBubble markdown, citations, copy, thinking state     │
+│    ├── SourcePanel   retrieved passages, page chips                │
+│    ├── Composer      drag-drop upload + question input             │
+│    ├── StatusBar     health + connection state                     │
+│    ├── ApiWarning    missing-key banner                            │
+│    └── ErrorBoundary render-crash recovery                         │
+│                                                                    │
+│  lib/api.ts — typed client + SSE parser (handles chunk splitting)  │
+└─────────────────────────────┬──────────────────────────────────────┘
+                              │ /api/*  (JSON, multipart, SSE)
+┌─────────────────────────────┴──────────────────────────────────────┐
+│  Backend — FastAPI + uvicorn                                       │
+│                                                                    │
+│  main.py     routes, SSE generator, middleware, error mapping      │
+│  ingest.py   pypdf extraction, cleaning, chunking                  │
+│  sessions.py thread-safe session store, FAISS index, persistence   │
+│  llm.py      OpenAI client: embed, chat, stream, error mapping     │
+│  schemas.py  pydantic request/response models                      │
+│  config.py   env-driven settings                                   │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-### Tech stack
+### Stack and rationale
 
-| Layer | Technology | Why |
-|-------|------------|-----|
-| **PDF parsing** | pypdf | Lightweight, fast, handles encrypted PDFs |
-| **Chunking** | Custom (no langchain) | Full control, no abstraction debt |
-| **Embeddings** | OpenAI text-embedding-3-small | High quality, low cost ($0.02/1M tokens) |
-| **Vector search** | FAISS IndexFlatIP | Fast cosine similarity, runs locally, no server needed |
-| **LLM** | OpenAI gpt-4o-mini | Fast, cheap ($0.15/1M input), good at RAG |
-| **Backend** | FastAPI + uvicorn | Async, auto-docs, type-safe, production-ready |
-| **Frontend** | React 18 + TypeScript + Tailwind | Component-based, type-safe, utility CSS |
-| **Deployment** | Docker + nginx + Gunicorn | Production-grade, single command |
+| Layer | Choice | Why |
+|---|---|---|
+| PDF parsing | `pypdf` | Pure Python, no system dependencies, handles encrypted files |
+| Chunking | Hand-written | ~40 lines; keeps page metadata exact and is trivial to tune |
+| Embeddings | `text-embedding-3-small` | Good retrieval quality at low cost |
+| Vector index | FAISS `IndexFlatIP` | Exact cosine search with no server to run |
+| Model | `gpt-4o-mini` (default) | Cheap and adequate for grounded, context-supplied answers |
+| Backend | FastAPI + uvicorn | Native async support, which SSE streaming needs |
+| Frontend | React + TypeScript + Tailwind | Typed end to end; no CSS framework runtime |
+| Deployment | Docker, nginx, Gunicorn/uvicorn | One-command local run; either container or split cloud |
+
+---
+
+## Testing
+
+95 automated checks. They run entirely offline — the language model is mocked,
+so the suites cost nothing and are deterministic.
+
+```bash
+# Backend — 71 checks
+python backend/smoke_test.py       # 20  end-to-end API flow
+python backend/advanced_test.py    # 29  abuse, concurrency, eviction, fuzzing
+python backend/deepscan_test.py    # 22  persistence, logging, stream failure, edges
+
+# Frontend — 24 checks
+cd frontend && npm test            # vitest + Testing Library + jsdom
+
+# Type check and production build
+cd frontend && npm run build       # strict tsc, then vite build
+```
+
+| Area | Checks | Covers |
+|---|---|---|
+| Health and sessions | 8 | CRUD, listing, history |
+| Upload validation | 12 | Non-PDF, corrupt, oversized, encrypted, image-only, empty, very long filenames |
+| Chat and streaming | 15 | SSE event order, citations, model failure, mid-stream failure, partial-answer persistence |
+| Persistence | 6 | Disk round-trip, corrupt metadata tolerance, eviction |
+| Concurrency | 4 | Parallel asks; ask + clear + history simultaneously |
+| Edge cases | 16 | Path separators, hostile strings, whitespace-only queries, unicode, extra fields |
+| Components | 10 | MessageBubble, Composer, Sidebar, copy button, thinking state |
+| SSE parsing | 7 | Events split across chunk boundaries, truncation, malformed events, abort |
+
+A few checks exercise more than one of these areas at once, so the per-area
+counts are a rough guide and do not add up to exactly 95.
+
+Several real bugs were found by these tests and fixed: a whitespace-only query
+that passed validation, a truncated stream that left the UI spinning forever,
+and a partial answer that was lost when the client disconnected mid-stream.
 
 ---
 
 ## Deployment
 
-### Option A: Docker (simplest)
+### Docker
 
 ```bash
 cp .env.example.docker .env       # set OPENAI_API_KEY
 docker compose up --build         # → http://localhost:8080
 ```
 
-### Option B: Split cloud (free tiers)
+Compose runs the FastAPI backend and an nginx-served frontend with a shared
+volume for session data. The nginx config disables proxy buffering on `/api`
+so SSE streams arrive incrementally.
 
-| Service | Platform | Config file |
-|---------|----------|-------------|
-| Backend (API) | [Render](https://render.com) | `render.yaml` |
-| Frontend (UI) | [Vercel](https://vercel.com) | `vercel.json` |
+### Split cloud
 
-### Option C: Local development
+| Part | Platform | Config |
+|---|---|---|
+| Backend | Render (or any container host) | `render.yaml` |
+| Frontend | Vercel (or any static host) | `vercel.json` |
+
+`vercel.json` rewrites `/api/*` to the backend origin, so streaming works
+through the Vercel edge without CORS setup. Note that persistent session data
+needs a disk — Render's free tier has no persistent disk, so sessions reset on
+redeploy unless you attach one on a paid plan or point storage at a volume.
+
+### Local
 
 ```bash
-./dev.sh    # starts backend :8000 + frontend :5173
+./dev.sh
 ```
 
 ---
 
-## Testing
+## Design notes
 
-Unfold has **95 automated tests** that run fully offline (LLM is mocked):
+Two decisions shaped this project.
 
-```bash
-# Backend — 71 checks
-python backend/smoke_test.py        # 20 end-to-end API flow tests
-python backend/advanced_test.py     # 29 abuse, concurrency, eviction, fuzzing
-python backend/deepscan_test.py     # 22 clear-history, logging, persistence, edge cases
+**Retrieval before generation, always.** The model never answers from its own
+memory. Every answer is produced from passages retrieved out of your document,
+and the citations make that auditable. When retrieval finds nothing relevant,
+the prompt instructs the model to say the document does not cover the question
+rather than invent an answer.
 
-# Frontend — 24 checks (vitest + Testing Library + jsdom)
-cd frontend && npm test
+**No orchestration framework.** The RAG loop here is small enough to write
+directly against the provider's SDK: embed, search, build a prompt, stream.
+Frameworks like LangChain are useful for rapidly wiring together many
+integrations, but for a single well-understood pipeline they add a dependency
+graph and an indirection layer that make streaming and citation tracking harder,
+not easier. This project deliberately stays at the SDK level — eleven backend
+dependencies, every step readable in `ingest.py`, `sessions.py`, and `llm.py`.
 
-# Full build
-cd frontend && npm run build        # strict TypeScript + production bundle
-```
+That is a trade-off, not a universal rule. If you need dozens of loaders,
+multi-hop agents, or managed tracing, a framework likely earns its keep.
 
-### What the tests cover
+### Honest limitations
 
-| Category | Tests | What they verify |
-|----------|-------|-----------------|
-| Health & sessions | 8 | CRUD, listing, history |
-| Upload validation | 12 | Non-PDF, corrupt, oversized, encrypted, scan-only, empty, long names |
-| Chat & streaming | 15 | SSE event order, citations, LLM failure, mid-stream error, partial persistence |
-| Persistence | 6 | Disk round-trip, corrupt data tolerance, eviction |
-| Concurrency | 4 | Parallel asks, clear+history+ask simultaneously |
-| Edge cases | 16 | Path traversal, hostile queries, whitespace, unicode, extra fields |
-| Component renders | 10 | MessageBubble, Composer, Sidebar, copy button, thinking state |
-| SSE parsing | 7 | Chunk boundaries, truncation, malformed events, abort |
-
----
-
-## Why Unfold?
-
-### The comparison
-
-| Feature | Unfold | Basic Chatbots | LangChain Demos | Enterprise RAG |
-|---------|--------|----------------|-----------------|----------------|
-| **Setup time** | 2 min | 5 min | 30+ min | Days/weeks |
-| **Dependencies** | 7 packages | Varies | 20+ | Dozens |
-| **LangChain** | ❌ Zero | — | ✅ Deep coupling | ✅ Deep coupling |
-| **Streaming answers** | ✅ Real-time SSE | ❌ Wait for full | ⚠️ Generator | ✅ |
-| **Citations → pages** | ✅ Inline `[1]` → page | ❌ None | ⚠️ Manual | ⚠️ Extra work |
-| **Multi-document** | ✅ Per-session | ❌ Single | ⚠️ Manual | ✅ |
-| **Persistence** | ✅ Disk-backed | ❌ Ephemeral | ❌ Ephemeral | ✅ |
-| **Error handling** | ✅ Friendly messages | ❌ Tracebacks | ⚠️ Generic | ✅ |
-| **Frontend quality** | ✅ Futuristic UI | ⚠️ Bare minimal | ⚠️ Streamlit | ✅ Custom |
-| **Docker deploy** | ✅ One command | ❌ Manual | ❌ Manual | ⚠️ K8s |
-| **Free deployment** | ✅ Vercel + Render | — | — | 💰 Paid |
-| **Open source** | ✅ Full code | — | — | — |
-
-### The philosophy
-
-```
-Traditional approach (LangChain):
-  pip install langchain openai chromadb ...    ← 20+ packages
-  from langchain import ...                    ← deep coupling
-  chain = RetrievalQA.from_chain_type(...)     ← opaque abstraction
-  result = chain.run(query)                    ← no streaming, no citations
-
-Unfold approach (no abstractions):
-  pip install openai faiss-cpu pypdf fastapi   ← 7 packages, zero coupling
-  client = OpenAI(api_key=...)                 ← direct API, transparent
-  index.add(embed_texts(chunks))               ← explicit vector search
-  for delta in stream_chat(messages): ...      ← real streaming, full control
-```
-
-Unfold avoids framework abstraction layers. Every line of code is readable, debuggable, and replaceable. **The result is fewer bugs, faster startup, and an app that actually works.**
+- One PDF per session; no cross-document retrieval.
+- `IndexFlatIP` is brute force. It is fine to tens of thousands of vectors and
+  will need an IVF/HNSW index beyond that.
+- Text extraction quality follows the source PDF. Scanned documents without an
+  OCR layer are rejected rather than silently returning nothing.
+- Retrieval is single-pass. No query rewriting, reranking, or hybrid BM25.
+- Sessions are stored on local disk; running multiple backend replicas against
+  a shared store is not supported.
 
 ---
 
 ## Troubleshooting
 
-| Error message | Cause | Fix |
-|---------------|-------|-----|
-| `OPENAI_API_KEY is not configured` | No key in `backend/.env` | Create `backend/.env` with `OPENAI_API_KEY=sk-...` and restart |
-| `Invalid or missing OPENAI_API_KEY` | Wrong key or expired | Check at [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
-| `Rate limit / quota exceeded` | Too many requests | Wait or upgrade your OpenAI plan |
-| `Could not reach the LLM provider` | Network issue | Check internet + `OPENAI_BASE_URL` in `.env` |
-| `Only PDF files are supported` | Non-PDF uploaded | Upload a `.pdf` file |
-| `No extractable text found` | Scanned/image-only PDF | Upload a text-based PDF (not a scan) |
-| `This PDF is password protected` | Encrypted PDF | Remove password before uploading |
-| `File too large` | PDF > 25 MB | Compress or split the PDF |
-| `Session not found` | Deleted or server restarted | Upload the PDF again |
-| CORS errors in browser | Backend not running | Start backend on :8000, check `CORS_ORIGINS` |
-| `Backend offline` in UI | Backend not started | `cd backend && uvicorn main:app --reload --port 8000` |
-| Blank white page | React crash | ErrorBoundary shows recovery UI; check console |
+| Symptom | Cause | Fix |
+|---|---|---|
+| `OPENAI_API_KEY is not configured` | No key in `backend/.env` | Add the key and restart the backend |
+| `Invalid or missing OPENAI_API_KEY` | Wrong or revoked key | Check the key with your provider |
+| `Rate limit / quota exceeded` | Provider quota | Wait, or raise your plan |
+| `Could not reach the LLM provider` | Network or wrong `OPENAI_BASE_URL` | Check connectivity and the base URL |
+| `Only PDF files are supported` | Non-PDF upload | Upload a `.pdf` |
+| `No extractable text found` | Scanned / image-only PDF | Use a text-based PDF, or OCR it first |
+| `This PDF is password protected` | Encrypted PDF | Remove the password before uploading |
+| `File too large` | Over `MAX_UPLOAD_MB` | Compress or split the file |
+| `Session not found` | Deleted, or data was not persisted | Re-upload; attach a volume when deploying |
+| CORS error in the browser | Backend down or origin not allowed | Start the backend; set `CORS_ORIGINS` |
+| "Backend offline" in the UI | Backend not running | `cd backend && uvicorn main:app --reload --port 8000` |
+| Blank page | Render crash | The error boundary shows a recovery screen; check the browser console |
 
 ---
 
 ## Project structure
 
 ```
-unfold/
+pdf-chatbot/
 ├── backend/
-│   ├── main.py              FastAPI app, routes, streaming SSE
-│   ├── config.py            Env-driven settings (pydantic-settings)
-│   ├── ingest.py            PDF extraction, cleaning, chunking
-│   ├── llm.py               OpenAI client (chat/embed/stream)
-│   ├── sessions.py          Session store, FAISS search, persistence
-│   ├── schemas.py           Pydantic request/response models
-│   ├── smoke_test.py        20 end-to-end API tests
-│   ├── advanced_test.py     29 abuse/concurrency/edge-case tests
-│   ├── deepscan_test.py     22 persistence/logging/LLM-failure tests
-│   ├── requirements.txt     Python dependencies (7 packages)
-│   ├── .env.example         Environment template
-│   ├── Dockerfile           Production container image
-│   └── venv/                Virtual environment (gitignored)
+│   ├── main.py               FastAPI app, routes, SSE streaming, middleware
+│   ├── config.py             Settings loaded from environment
+│   ├── ingest.py             PDF extraction, cleaning, chunking
+│   ├── llm.py                Provider client: embeddings, chat, streaming
+│   ├── sessions.py           Session store, FAISS index, persistence
+│   ├── schemas.py            Request/response models
+│   ├── smoke_test.py         20 end-to-end API tests
+│   ├── advanced_test.py      29 abuse / concurrency / edge-case tests
+│   ├── deepscan_test.py      22 persistence / logging / failure tests
+│   ├── requirements.txt      Python dependencies
+│   ├── .env.example          Environment template
+│   └── Dockerfile            Backend image
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx                  Root state + streaming orchestration
-│   │   ├── main.tsx                 Entry with ErrorBoundary
-│   │   ├── index.css                Tailwind theme + glassmorphism
-│   │   ├── components/
-│   │   │   ├── Sidebar.tsx          Sessions + clear/delete + mobile menu
-│   │   │   ├── EmptyState.tsx       Animated hero + suggestion cards
-│   │   │   ├── MessageBubble.tsx    Markdown + citations + copy + thinking
-│   │   │   ├── Composer.tsx         Upload + message input + drag-drop
-│   │   │   ├── SourcePanel.tsx      Expandable source chunks
-│   │   │   ├── StatusBar.tsx        Health + connection + version
-│   │   │   ├── ApiWarning.tsx       Missing API key banner
-│   │   │   └── ErrorBoundary.tsx    Crash recovery UI
+│   │   ├── App.tsx           Session state and streaming orchestration
+│   │   ├── main.tsx          Entry point
+│   │   ├── index.css         Tailwind theme
+│   │   ├── components/       UI components (see Architecture)
 │   │   ├── lib/
-│   │   │   ├── api.ts              Typed API client + SSE parser
-│   │   │   ├── utils.ts            formatBytes, timeAgo, uid
-│   │   │   ├── api.test.ts         7 SSE parser tests
-│   │   │   └── utils.test.ts       3 utility tests
-│   │   └── test/
-│   │       └── setup.ts            Vitest setup + jest-dom
-│   ├── components/*.test.tsx        14 component render tests
-│   ├── index.html                   HTML entry point
-│   ├── vite.config.ts               Dev proxy + test config
-│   ├── tsconfig.json                Strict TypeScript
-│   ├── package.json                 Dependencies + scripts
-│   ├── Dockerfile                   Multi-stage build → nginx
-│   └── nginx.conf                   SPA + SSE-safe API proxy
-├── docker-compose.yml       Full stack with persistent volume
-├── vercel.json              Frontend deploy + API rewrite
-├── render.yaml              Backend blueprint (Render)
-├── .dockerignore            Build context exclusions
-├── .gitignore               Git exclusions
-├── dev.sh                   Local dev shortcut
-├── .env.example.docker      Docker env template
-└── README.md                ← you are here
+│   │   │   ├── api.ts        Typed API client and SSE parser
+│   │   │   └── utils.ts      Formatting helpers
+│   │   └── test/setup.ts     Vitest setup
+│   ├── public/               favicon, screenshot
+│   ├── index.html
+│   ├── vite.config.ts        Dev proxy + test config
+│   ├── tsconfig.json         Strict TypeScript
+│   ├── nginx.conf            SPA fallback + SSE-safe proxy
+│   └── Dockerfile            Multi-stage build → nginx
+├── docker-compose.yml        Full stack, persistent volume
+├── vercel.json               Frontend deploy + API rewrite
+├── render.yaml               Backend blueprint
+├── dev.sh                    Start both servers locally
+├── .env.example.docker       Docker environment template
+├── LICENSE
+└── README.md
 ```
+
+---
+
+## Author
+
+**Arghya Bose** — [@officialarghya29](https://github.com/officialarghya29)
+
+Designed and built as a complete, deployable RAG application: backend,
+frontend, tests, and deployment configuration.
+
+If Unfold is useful to you, a star on the repository is appreciated. Questions
+and bug reports are welcome through GitHub Issues.
 
 ---
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing`
-3. Make your changes
-4. Run tests: `python backend/smoke_test.py && cd frontend && npm test`
-5. Commit: `git commit -m "Add amazing feature"`
-6. Push: `git push origin feature/amazing`
-7. Open a Pull Request
+1. Fork the repository and branch from `main`.
+2. Make your change.
+3. Run the tests: `python backend/smoke_test.py`, then `cd frontend && npm test`.
+4. Open a pull request describing what changed and why.
 
-### Development guidelines
-
-- **Backend**: Keep routes thin, logic in services. All new endpoints must have tests.
-- **Frontend**: Use TypeScript strict mode. Components must render without crashing (ErrorBoundary catches).
-- **Tests**: Every bug fix should include a regression test. Run `npm test` before committing.
+Guidelines: keep routes thin and logic in the service modules; add a
+regression test with every bug fix; TypeScript stays in strict mode.
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE). © 2026 Arghya Bose.
 
 ---
 
 <p align="center">
-  Built with 🧠 by <a href="https://github.com/officialarghya29">officialarghya29</a><br/>
-  <sub>Unfold v3.1 · 95 tests · 7 backend packages · 0 LangChain dependencies</sub>
+  <sub>Unfold v3.0.0 · 95 tests · 11 backend dependencies · no orchestration framework</sub>
 </p>
